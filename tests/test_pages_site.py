@@ -87,3 +87,51 @@ def test_pages_parser_accepts_user_markdown_table_rows():
         """
     )
     subprocess.run(["node", "-e", node_script], check=True)
+
+
+def test_pages_analysis_reacts_to_chord_weight_changes():
+    node_script = textwrap.dedent(
+        """
+        const fs = require('node:fs');
+        const vm = require('node:vm');
+
+        const html = fs.readFileSync('web/index.html', 'utf8');
+        const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
+
+        const element = { addEventListener: () => {}, value: '', textContent: '', className: '', innerHTML: '', selectedOptions: [], options: [] };
+        const context = {
+          document: { getElementById: () => element },
+          console,
+          Math,
+          Number,
+          JSON,
+          Array,
+          Object,
+          String,
+          RegExp,
+        };
+        vm.createContext(context);
+        vm.runInContext(script, context);
+
+        const common = ['Cmaj7,1,1.0', 'G7,1,1.0'];
+        const lowWeight = context.optimize(common.map((line, idx) => idx === 0 ? 'Cmaj7,1,0.1' : line));
+        const highWeight = context.optimize(common.map((line, idx) => idx === 0 ? 'Cmaj7,1,10.0' : line));
+
+        const firstLow = lowWeight.ranked[0];
+        const firstHigh = highWeight.ranked[0];
+        const lowKey = `${firstLow.family}__${firstLow.center}`;
+        const highKey = `${firstHigh.family}__${firstHigh.center}`;
+
+        const lowAnalysis = context.analyzeCandidate(lowWeight.chords, lowWeight.intervalMap, lowWeight.pitchMaps[lowKey]);
+        const highAnalysis = context.analyzeCandidate(highWeight.chords, highWeight.intervalMap, highWeight.pitchMaps[highKey]);
+
+        const lowCmaj7 = lowAnalysis.perChord.find(row => row.symbol === 'Cmaj7');
+        const highCmaj7 = highAnalysis.perChord.find(row => row.symbol === 'Cmaj7');
+        if (!lowCmaj7 || !highCmaj7) throw new Error('missing chord analysis row');
+
+        if (highCmaj7.weightedMae <= lowCmaj7.weightedMae) {
+          throw new Error(`weightedMae did not increase: low=${lowCmaj7.weightedMae}, high=${highCmaj7.weightedMae}`);
+        }
+      """
+    )
+    subprocess.run(["node", "-e", node_script], check=True)
