@@ -75,6 +75,7 @@ D/F#,12,0.7
 Gsus4add9,9,0.8
 Cmaj7,18,1.0
 Fadd9,14,0.9</textarea>
+        <div id="invalid-details" style="margin-top:12px;"></div>
         <h3>Pair-weight multipliers</h3>
         <div class="grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
           <label class="label">Root↔(3|5)
@@ -155,6 +156,11 @@ Fadd9,14,0.9</textarea>
         </label>
       </div>
       <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
+      <label class="label" style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="show-decoded-chord-model" type="checkbox" />
+        Show decoded chord model
+      </label>
+      <div id="decoded-chord-model" class="scroll-x" style="display:none; margin-top:8px;"></div>
       <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
         <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
       </label>
@@ -202,20 +208,23 @@ const appState = {
   selectedAnalyses: {},
   rankingView: { expanded: false, filtered: [], startIndex: 0, visibleCount: 0, scrollTop: 0, rowHeight: 38 },
 };
+const appState = { ranked: [], invalid: [], chords: [], chordBySymbol: {}, intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
+const appState = { ranked: [], invalid: [], invalidDetails: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
 function parsePipeRow(raw, tableLayout) {
-  if (!raw.includes('|')) return null;
+  if (!raw.includes('|')) return {matched: false};
   const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
-  if (cells.length < 2 || cells.every(cell => cell === '')) return null;
+  if (cells.length < 2 || cells.every(cell => cell === '')) return {matched: true, reason: 'unknown_format'};
   const layout = tableLayout || [0, 1, cells.length > 2 ? 2 : null];
   const [symbolIdx, frequencyIdx, weightIdx] = layout;
-  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return null;
+  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return {matched: true, reason: 'unknown_format'};
+  if (!cells[symbolIdx]) return {matched: true, reason: 'bad_symbol'};
   const frequency = Number.parseInt(cells[frequencyIdx], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weightText = weightIdx !== null && weightIdx < cells.length ? cells[weightIdx] : '';
   const weight = weightText === '' ? 1.0 : Number(weightText);
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: cells[symbolIdx], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: cells[symbolIdx], frequency, weight } };
 }
 
 function readPipeHeaderLayout(raw) {
@@ -235,30 +244,59 @@ function isPipeSeparatorLine(raw) {
 function parseGenericTriplet(raw) {
   const normalized = raw.replace(/[\[\]\(\)"']/g, ' ').trim();
   const parts = normalized.split(/[,\t; ]+/).filter(Boolean);
-  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.length < 2 || parts.length > 3) return {matched: false};
   const frequency = Number.parseInt(parts[1], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weight = parts.length === 3 ? Number(parts[2]) : 1.0;
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: parts[0], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: parts[0], frequency, weight } };
 }
 
 function parseLine(raw, tableLayout) {
   const pipe = parsePipeRow(raw, tableLayout);
-  if (pipe) return pipe;
-  const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$/);
-  if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: csv[3] && csv[3].trim() ? Number(csv[3]) : 1.0};
-  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?/);
-  if (kv) return {symbol: kv[1].trim(), frequency: Number(kv[2]), weight: kv[3] && kv[3].trim() ? Number(kv[3]) : 1.0};
+  if (pipe.matched) return pipe.parsed ? {ok: true, parsed: pipe.parsed} : {ok: false, reason: pipe.reason};
+  if (raw.includes(',') && !raw.includes('|')) {
+    const parts = raw.split(',').map(token => token.trim());
+    if (parts.length >= 2 && parts.length <= 3) {
+      if (!parts[0]) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number.parseInt(parts[1], 10);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = parts.length === 3 && parts[2] !== '' ? Number(parts[2]) : 1.0;
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol: parts[0], frequency, weight}};
+    }
+  }
+  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*([^\s]+)(?:\s+weight\s*=\s*([^\s]+))?/i);
+  if (kv) {
+    const frequency = Number.parseInt(kv[2], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = kv[3] === undefined || kv[3] === '' ? 1.0 : Number(kv[3]);
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: kv[1].trim(), frequency, weight}};
+  }
   if (raw.trim().startsWith('{')) {
     try {
       const data = JSON.parse(raw);
-      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight: data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight)};
-    } catch (_err) { return null; }
+      const symbol = String(data.symbol ?? '').trim();
+      if (!symbol) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number(data.frequency);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight);
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol, frequency, weight}};
+    } catch (_err) { return {ok: false, reason: 'invalid_json'}; }
   }
-  const x = raw.match(/^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$/);
-  if (x) return {symbol: x[2].trim(), frequency: Number(x[1]), weight: x[3] && x[3].trim() ? Number(x[3]) : 1.0};
-  return parseGenericTriplet(raw);
+  const x = raw.match(/^\s*(\S+)x\s+([^@]+?)(?:\s*@\s*(\S+))?\s*$/);
+  if (x) {
+    const frequency = Number.parseInt(x[1], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = x[3] && x[3].trim() ? Number(x[3]) : 1.0;
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: x[2].trim(), frequency, weight}};
+  }
+  const generic = parseGenericTriplet(raw);
+  if (generic.matched) return generic.parsed ? {ok: true, parsed: generic.parsed} : {ok: false, reason: generic.reason};
+  return {ok: false, reason: 'unknown_format'};
 }
 
 function decodeFactors(body) {
@@ -426,8 +464,9 @@ function optimize(lines) {
 function optimizeWithWeights(lines, weights) {
   const parsed = [];
   const invalid = [];
+  const invalidDetails = [];
   let tableLayout = null;
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
     const raw = String(line).trim();
     if (!raw) { tableLayout = null; continue; }
     if (raw === '.' || raw === '…') continue;
@@ -436,7 +475,11 @@ function optimizeWithWeights(lines, weights) {
     if (isPipeSeparatorLine(raw)) continue;
     if (!raw.includes('|')) tableLayout = null;
     const one = parseLine(raw, tableLayout);
-    if (one) parsed.push(one); else invalid.push(raw);
+    if (one.ok) parsed.push(one.parsed);
+    else {
+      invalid.push(raw);
+      invalidDetails.push({lineIndex, lineNumber: lineIndex + 1, raw, reason: one.reason || 'unknown_format'});
+    }
   }
 
   const chords = parsed.map(decodeChord).filter(Boolean);
@@ -455,7 +498,7 @@ function optimizeWithWeights(lines, weights) {
   }
 
   records.sort((a, b) => a.final_score_cents - b.final_score_cents || a.wrmse_cents - b.wrmse_cents || a.wmae_cents - b.wmae_cents || a.family.localeCompare(b.family) || a.center.localeCompare(b.center));
-  return {ranked: records, invalid, chords, intervalMap, pitchMaps};
+  return {ranked: records, invalid, invalidDetails, chords, intervalMap, pitchMaps};
 }
 
 function buildStats(ranked, invalid, inputLines) {
@@ -593,6 +636,30 @@ function renderClosestFurthest(rows, elemId, reverse=false) {
   document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.weightedMae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
 }
 
+function renderDecodedChord(selectedSymbol) {
+  const showDecoded = document.getElementById('show-decoded-chord-model').checked;
+  const host = document.getElementById('decoded-chord-model');
+  if (!showDecoded) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const chord = appState.chordBySymbol[selectedSymbol];
+  if (!chord) {
+    host.style.display = 'block';
+    host.innerHTML = '<p class="small">No decoded chord model is available for this selection.</p>';
+    return;
+  }
+  host.style.display = 'block';
+  host.innerHTML = `<table><tbody>
+    <tr><th>symbol</th><td class="mono">${chord.symbol}</td></tr>
+    <tr><th>root pitch class</th><td>${chord.rootPc}</td></tr>
+    <tr><th>bass pitch class</th><td>${chord.bassPc}</td></tr>
+    <tr><th>factors</th><td class="mono">${chord.factors.join(', ')}</td></tr>
+    <tr><th>factor semitones</th><td class="mono">${chord.factorSemitones.join(', ')}</td></tr>
+  </tbody></table>`;
+}
+
 function ensureAnalysis(family, center) {
   const key = `${family}__${center}`;
   if (!appState.selectedAnalyses[key]) {
@@ -604,11 +671,13 @@ function ensureAnalysis(family, center) {
 function renderCandidateDiagnostics() {
   if (!appState.ranked.length || !appState.chords.length) {
     document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
+    renderDecodedChord(document.getElementById('selected-chord').value);
     return;
   }
   const family = document.getElementById('selected-family').value;
   const center = document.getElementById('selected-center').value;
   const chord = document.getElementById('selected-chord').value;
+  renderDecodedChord(chord);
   const selectedRecord = appState.ranked.find(r => r.family === family && r.center === center);
   const baselineRecord = appState.ranked.find(r => r.family === '12-TET baseline' && r.center === center);
   const selectedAnalysis = ensureAnalysis(family, center);
@@ -681,7 +750,7 @@ function initializeSelectors() {
     for (const option of comparisonEl.options) option.selected = defaultSelections.includes(option.value);
   }
 
-  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons']) {
+  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons', 'show-decoded-chord-model']) {
     document.getElementById(id).addEventListener('change', () => {
       if (id === 'selected-comparisons') {
         const selected = Array.from(comparisonEl.selectedOptions);
@@ -707,7 +776,9 @@ document.getElementById('run').addEventListener('click', () => {
   const result = optimizeWithWeights(lines, weights);
   appState.ranked = result.ranked;
   appState.invalid = result.invalid;
+  appState.invalidDetails = result.invalidDetails;
   appState.chords = result.chords;
+  appState.chordBySymbol = Object.fromEntries(result.chords.map(chord => [chord.symbol, chord]));
   appState.intervalMap = result.intervalMap;
   appState.pitchMaps = result.pitchMaps;
   appState.selectedAnalyses = {};
@@ -716,8 +787,9 @@ document.getElementById('run').addEventListener('click', () => {
   renderStats(stats);
   renderTable(result.ranked);
   initializeRankingPanel();
+  renderInvalidDetails(result.invalidDetails);
   renderContributors(result.ranked[0]);
-  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines (${result.invalid.length}): ${result.invalid.join(' | ')}` : 'No invalid lines.';
+  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines: ${result.invalid.length}.` : 'Invalid lines: 0.';
   initializeSelectors();
   renderCandidateDiagnostics();
 
