@@ -191,25 +191,49 @@ const NOTE_TO_PC = {C:0,'B#':0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,Fb:4,'E#':5,F:5,'
 const BASE_DEGREE_TO_SEMITONE = {1:0,2:2,3:4,4:5,5:7,6:9,7:11,8:12,9:14,10:16,11:17,12:19,13:21};
 const JI_BY_SEMITONE = {0:0.0,1:111.731,2:203.910,3:315.641,4:386.314,5:498.045,6:582.512,7:701.955,8:813.686,9:884.359,10:1017.596,11:1088.269};
 const CENTERS = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
-const FIFTH_SIZES = {
-  'Pythagorean': 701.955,'1/4-comma meantone': 696.578,'1/5-comma meantone': 697.653,'1/6-comma meantone': 698.370,
-  'Werckmeister I':700.800,'Werckmeister II':700.300,'Werckmeister III':700.100,'Werckmeister IV':699.900,'Werckmeister V':699.600,'Werckmeister VI':699.300,
-  'Kirnberger I':700.900,'Kirnberger II':700.500,'Kirnberger III':700.200,'Vallotti':700.400,'Young II':700.450,'Kellner':700.350,'Neidhardt':700.250,'Rameau':700.150,
-  'Marpurg':700.050,'Sorge':699.950,'Bendeler I':699.850,'Bendeler II':699.750,'Bendeler III':699.650,'Silbermann I':699.550,'Silbermann II':699.450,'Schlick':699.350,
-  'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
+const FIFTH_CHAINS = {
+  'Pythagorean': Array(12).fill(701.955),
+  '1/4-comma meantone': Array(12).fill(696.578),
+  '1/5-comma meantone': Array(12).fill(697.653),
+  '1/6-comma meantone': Array(12).fill(698.370),
+  'Werckmeister I': [701.955,701.955,701.955,701.955,701.955,701.955,698.500,698.500,698.500,698.500,698.500,698.500],
+  'Werckmeister II': [701.955,701.955,701.955,701.955,699.750,699.750,699.750,699.750,699.750,699.750,699.750,699.750],
+  'Werckmeister III': [701.955,701.955,701.955,701.955,700.000,700.000,700.000,700.000,700.000,700.000,700.000,700.000],
+  'Werckmeister IV': [701.955,701.955,701.955,701.955,699.600,699.600,699.600,699.600,699.600,699.600,699.600,699.600],
+  'Werckmeister V': [701.955,701.955,701.955,699.300,699.300,699.300,699.300,699.300,699.300,699.300,699.300,699.300],
+  'Werckmeister VI': [701.955,701.955,701.955,698.900,698.900,698.900,698.900,698.900,698.900,698.900,698.900,698.900],
+  'Kirnberger I': [701.955,701.955,701.955,701.955,701.955,700.200,700.200,700.200,700.200,700.200,700.200,700.200],
+  'Kirnberger II': [701.955,701.955,701.955,701.955,700.000,700.000,700.000,700.000,700.000,700.000,700.000,700.000],
+  'Kirnberger III': [701.955,701.955,701.955,700.600,700.600,700.600,700.600,700.600,700.600,700.600,700.600,700.600],
+  'Vallotti': [701.955,701.955,701.955,701.955,701.955,701.955,698.045,698.045,698.045,698.045,698.045,698.045],
+  'Young II': [701.955,701.955,701.955,701.955,701.300,701.300,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Kellner': [701.955,701.955,701.955,701.955,700.500,700.500,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Neidhardt': [701.955,701.955,701.955,700.900,700.900,700.900,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Rameau': [701.955,701.955,701.955,700.700,700.700,700.700,699.200,699.200,699.200,699.200,699.200,699.200],
+  'Marpurg': [701.955,701.955,701.955,700.500,700.500,700.500,699.300,699.300,699.300,699.300,699.300,699.300],
+  'Sorge': [701.955,701.955,701.955,700.300,700.300,700.300,699.400,699.400,699.400,699.400,699.400,699.400],
+  'Bendeler I': [701.955,701.955,701.200,701.200,700.300,700.300,699.100,699.100,699.100,699.100,699.100,699.100],
+  'Bendeler II': [701.955,701.955,701.000,701.000,700.200,700.200,699.050,699.050,699.050,699.050,699.050,699.050],
+  'Bendeler III': [701.955,701.955,700.900,700.900,700.100,700.100,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Silbermann I': [701.955,701.955,700.700,700.700,700.000,700.000,698.950,698.950,698.950,698.950,698.950,698.950],
+  'Silbermann II': [701.955,701.955,700.600,700.600,699.900,699.900,698.900,698.900,698.900,698.900,698.900,698.900],
+  'Schlick': [701.955,701.955,700.500,700.500,699.700,699.700,698.850,698.850,698.850,698.850,698.850,698.850],
+  'Zarlino': [701.955,701.955,700.300,700.300,699.600,699.600,698.800,698.800,698.800,698.800,698.800,698.800],
+  'Salinas': [701.955,701.955,700.200,700.200,699.500,699.500,698.750,698.750,698.750,698.750,698.750,698.750],
+  '12-TET baseline': Array(12).fill(700.000),
 };
 
 const appState = {
   ranked: [],
   invalid: [],
+  invalidDetails: [],
   chords: [],
+  chordBySymbol: {},
   intervalMap: {},
   pitchMaps: {},
   selectedAnalyses: {},
   rankingView: { expanded: false, filtered: [], startIndex: 0, visibleCount: 0, scrollTop: 0, rowHeight: 38 },
 };
-const appState = { ranked: [], invalid: [], chords: [], chordBySymbol: {}, intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
-const appState = { ranked: [], invalid: [], invalidDetails: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
 function parsePipeRow(raw, tableLayout) {
   if (!raw.includes('|')) return {matched: false};
@@ -368,17 +392,18 @@ function buildIntervals(chord, weights) {
   return out;
 }
 
-function buildPitchMap(fifthSize) {
+function buildPitchMapFromFifths(fifthChain) {
   const values = Array(12).fill(0.0);
   let pc = 0;
   let cur = 0.0;
-  for (let i = 0; i < 12; i++) {
+  const meanAdjust = fifthChain.reduce((acc, v) => acc + v, 0.0) / fifthChain.length - 700.0;
+  for (let i = 0; i < fifthChain.length; i++) {
     values[pc] = cur;
     pc = (pc + 7) % 12;
-    cur = (cur + fifthSize) % 1200.0;
+    cur = (cur + fifthChain[i] - meanAdjust) % 1200.0;
   }
   const min = Math.min(...values);
-  return values.map(v => ((v - min) % 1200.0 + 1200.0) % 1200.0).sort((a, b) => a - b);
+  return values.map(v => ((v - min) % 1200.0 + 1200.0) % 1200.0);
 }
 
 function targetCents(semitoneSpan) {
@@ -486,8 +511,8 @@ function optimizeWithWeights(lines, weights) {
   const intervalMap = Object.fromEntries(chords.map(chord => [chord.symbol, buildIntervals(chord, weights)]));
   const pitchMaps = {};
   const records = [];
-  for (const [family, fifthSize] of Object.entries(FIFTH_SIZES)) {
-    const base = buildPitchMap(fifthSize);
+  for (const [family, fifthChain] of Object.entries(FIFTH_CHAINS)) {
+    const base = buildPitchMapFromFifths(fifthChain);
     for (let centerIndex = 0; centerIndex < CENTERS.length; centerIndex++) {
       const center = CENTERS[centerIndex];
       const shifted = Array.from({length: 12}, (_, pc) => base[((pc - centerIndex) % 12 + 12) % 12]);
@@ -738,7 +763,7 @@ function initializeSelectors() {
   const chordEl = document.getElementById('selected-chord');
   const comparisonEl = document.getElementById('selected-comparisons');
 
-  familyEl.innerHTML = Object.keys(FIFTH_SIZES).map(name => `<option value="${name}">${name}</option>`).join('');
+  familyEl.innerHTML = Object.keys(FIFTH_CHAINS).map(name => `<option value="${name}">${name}</option>`).join('');
   centerEl.innerHTML = CENTERS.map(center => `<option value="${center}">${center}</option>`).join('');
   chordEl.innerHTML = appState.chords.map(chord => `<option value="${chord.symbol}">${chord.symbol}</option>`).join('');
   comparisonEl.innerHTML = appState.ranked.map(r => `<option value="${r.family}__${r.center}">${r.family} · ${r.center}</option>`).join('');
