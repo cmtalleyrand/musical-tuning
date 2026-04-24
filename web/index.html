@@ -48,6 +48,9 @@
     .bar-neg { background: linear-gradient(90deg, #f97393, #ffb3c6); }
     .delta-pos { color: var(--pos); font-weight: 700; }
     .delta-neg { color: var(--neg); font-weight: 700; }
+    .error-low { color: var(--ok); font-weight: 700; }
+    .error-mid { color: var(--warn); font-weight: 700; }
+    .error-high { color: var(--neg); font-weight: 700; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .scroll-x { overflow-x: auto; }
     .small { font-size: .85rem; color: var(--muted); }
@@ -471,6 +474,16 @@ function ensureAnalysis(family, center) {
   return appState.selectedAnalyses[key];
 }
 
+function quantileFromSorted(sortedValues, quantile) {
+  if (!sortedValues.length) return 0;
+  const position = (sortedValues.length - 1) * quantile;
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
+  if (lowerIndex === upperIndex) return sortedValues[lowerIndex];
+  const weight = position - lowerIndex;
+  return sortedValues[lowerIndex] + (sortedValues[upperIndex] - sortedValues[lowerIndex]) * weight;
+}
+
 function renderCandidateDiagnostics() {
   if (!appState.ranked.length || !appState.chords.length) {
     document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
@@ -524,10 +537,26 @@ function renderCandidateDiagnostics() {
   if (!intervalRows.length) {
     document.getElementById('interval-breakdown').innerHTML = '<p class="small">No interval data for this chord selection.</p>';
   } else {
-    document.getElementById('interval-breakdown').innerHTML = `<table><thead><tr><th>Interval</th><th>JI target</th>${columns.map(key => `<th>${key.replace('__', ' · ')} error</th>`).join('')}</tr></thead><tbody>${intervalRows.map(row => `<tr><td>${row.label}</td><td>${row.ji.toFixed(3)}</td>${columns.map(key => {
+    const activeErrors = [];
+    for (const row of intervalRows) {
+      for (const key of columns) {
+        const value = row.values[key];
+        if (value) activeErrors.push(value.error);
+      }
+    }
+    activeErrors.sort((a, b) => a - b);
+    const lowUpperBound = quantileFromSorted(activeErrors, 1 / 3);
+    const midUpperBound = quantileFromSorted(activeErrors, 2 / 3);
+    const classifyErrorBand = (error) => {
+      if (error <= lowUpperBound) return 'error-low';
+      if (error <= midUpperBound) return 'error-mid';
+      return 'error-high';
+    };
+
+    document.getElementById('interval-breakdown').innerHTML = `<div class="small" style="margin-bottom:8px;">Relative error bands (current view): low/mid/high</div><table><thead><tr><th>Interval</th><th>JI target</th>${columns.map(key => `<th>${key.replace('__', ' · ')} error</th>`).join('')}</tr></thead><tbody>${intervalRows.map(row => `<tr><td>${row.label}</td><td>${row.ji.toFixed(3)}</td>${columns.map(key => {
       const value = row.values[key];
       if (!value) return '<td>-</td>';
-      const cls = value.error <= 10 ? 'delta-pos' : 'delta-neg';
+      const cls = classifyErrorBand(value.error);
       return `<td><span class="${cls}">${value.error.toFixed(3)}</span><div class="small">temp=${value.temperament.toFixed(3)}</div></td>`;
     }).join('')}</tr>`).join('')}</tbody></table>`;
   }
