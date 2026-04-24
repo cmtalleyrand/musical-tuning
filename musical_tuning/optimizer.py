@@ -88,9 +88,11 @@ class RankedRecord:
 
 class InputAdapter:
     _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$")
-    _pipe_re = re.compile(r"^\s*([^|]+)\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)\s*$")
+    _pipe_re = re.compile(r"^\s*\|?\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)?\s*\|?\s*$")
     _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)")
     _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$")
+    _md_header_re = re.compile(r"^\s*\|?\s*chord\s*\|\s*frequency\s*\|\s*weight\s*\|?\s*$", re.IGNORECASE)
+    _md_separator_re = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|?\s*$")
 
     def parse_lines(self, lines: Iterable[str]) -> tuple[list[ParsedChordInput], list[str]]:
         parsed: list[ParsedChordInput] = []
@@ -98,6 +100,8 @@ class InputAdapter:
         for line in lines:
             raw = line.strip()
             if not raw:
+                continue
+            if self._md_header_re.match(raw) or self._md_separator_re.match(raw):
                 continue
             parsed_line = self._parse_line(raw)
             if parsed_line is None:
@@ -110,7 +114,9 @@ class InputAdapter:
         for regex in (self._csv_re, self._pipe_re, self._kv_re):
             m = regex.search(raw)
             if m:
-                return ParsedChordInput(symbol=m.group(1).strip(), frequency=int(m.group(2)), weight=float(m.group(3)))
+                weight_str = m.group(3)
+                weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+                return ParsedChordInput(symbol=m.group(1).strip(), frequency=int(m.group(2)), weight=weight)
 
         if raw.startswith("{"):
             try:
