@@ -69,8 +69,8 @@ class CanonicalChord:
 
 @dataclass(frozen=True)
 class IntervalPair:
-    i: int
-    j: int
+    left_semitone: int
+    right_semitone: int
     semitone_span: int
     weight: float
 
@@ -210,7 +210,14 @@ class IntervalBuilder:
         for i in range(len(semitones)):
             for j in range(i + 1, len(semitones)):
                 span = semitones[j] - semitones[i]
-                out.append(IntervalPair(i=i, j=j, semitone_span=span, weight=weight_engine.pair_weight(chord, factors[i], factors[j], span)))
+                out.append(
+                    IntervalPair(
+                        left_semitone=semitones[i],
+                        right_semitone=semitones[j],
+                        semitone_span=span,
+                        weight=weight_engine.pair_weight(chord, factors[i], factors[j], span),
+                    )
+                )
         return tuple(out)
 
 
@@ -232,13 +239,13 @@ class WeightEngine:
         lf = left_factor.lstrip("b#")
         rf = right_factor.lstrip("b#")
 
-        if ({"1" in {lf, rf}}) and (lf in {"3", "5"} or rf in {"3", "5"}):
+        if ("1" in {lf, rf}) and (lf in {"3", "5"} or rf in {"3", "5"}):
             weight *= self.root_third_fifth
 
         if chord.bass_pc != chord.root_pc:
             weight *= self.bass_to_any
 
-        if {lf, rf} & {"1"} and ({lf in {"2", "7"} or rf in {"2", "7"}} or span % 12 == 6):
+        if {lf, rf} & {"1"} and ((lf in {"2", "7"} or rf in {"2", "7"}) or span % 12 == 6):
             weight *= self.root_to_dissonance
 
         if span >= 12:
@@ -338,8 +345,8 @@ class ScoringEngine:
             sq_sum = 0.0
 
             for pair in intervals:
-                left_pc = (chord.root_pc + chord.factor_semitones[pair.i]) % 12
-                right_pc = (chord.root_pc + chord.factor_semitones[pair.j]) % 12
+                left_pc = (chord.root_pc + pair.left_semitone) % 12
+                right_pc = (chord.root_pc + pair.right_semitone) % 12
 
                 temp_cents = (pitch_map[right_pc] - pitch_map[left_pc]) % 1200.0
                 if pair.semitone_span >= 12:
@@ -361,6 +368,9 @@ class ScoringEngine:
             weighted_mse_sum += cw * chord_mse
             total_chord_weight += cw
             chord_contribs.append((chord.symbol, cw * chord_mae))
+
+        if total_chord_weight == 0.0:
+            return 0.0, 0.0, 0.0, [], []
 
         wmae = weighted_mae_sum / total_chord_weight
         wrmse = math.sqrt(weighted_mse_sum / total_chord_weight)
