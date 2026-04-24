@@ -15,42 +15,63 @@
       --accent: #6ea8fe;
       --ok: #62d6a6;
       --warn: #ffcc66;
+      --neg: #f97393;
+      --pos: #62d6a6;
     }
     body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background: radial-gradient(circle at 20% 0%, #1f2a4a 0%, var(--bg) 45%); color: var(--text); }
-    .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .container { max-width: 1280px; margin: 0 auto; padding: 24px; }
     h1 { margin: 0 0 6px; font-size: 2rem; }
+    h2 { margin: 0 0 10px; }
+    h3 { margin: 12px 0 8px; }
     .subtitle { margin: 0 0 20px; color: var(--muted); }
     .grid { display: grid; gap: 16px; }
-    .layout { grid-template-columns: 1.2fr 1fr; }
+    .layout { grid-template-columns: 1.1fr 1fr; }
     .card { background: linear-gradient(160deg, var(--card), var(--card-2)); border: 1px solid #2f3a66; border-radius: 14px; padding: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
-    textarea { width: 100%; min-height: 220px; background: #0f1530; border: 1px solid #384575; border-radius: 10px; color: var(--text); padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    textarea { width: 100%; min-height: 210px; background: #0f1530; border: 1px solid #384575; border-radius: 10px; color: var(--text); padding: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    input, select { background: #0f1530; color: var(--text); border: 1px solid #384575; border-radius: 8px; padding: 8px; }
     button { background: linear-gradient(120deg, #4a78f5, var(--accent)); border: none; color: #081023; font-weight: 700; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
     .stats { grid-template-columns: repeat(4, minmax(120px, 1fr)); }
     .stat { background: #0e1430; border: 1px solid #334170; border-radius: 10px; padding: 12px; }
     .label { color: var(--muted); font-size: .8rem; }
-    .value { font-size: 1.2rem; font-weight: 700; margin-top: 6px; }
-    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #2d365f; }
+    .value { font-size: 1.15rem; font-weight: 700; margin-top: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #2d365f; vertical-align: top; }
     th { color: var(--muted); font-weight: 600; }
     .pill { display: inline-block; border-radius: 999px; padding: 2px 10px; font-size: .8rem; }
     .ok { background: rgba(98,214,166,.16); color: var(--ok); }
     .warn { background: rgba(255,204,102,.18); color: var(--warn); }
-    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); } }
+    .controls { grid-template-columns: repeat(3, minmax(180px, 1fr)); }
+    .bench-grid { grid-template-columns: 1fr 1fr; }
+    .bar-bg { height: 16px; border-radius: 999px; background: #0d1532; border: 1px solid #2d365f; position: relative; overflow: hidden; }
+    .bar { height: 100%; border-radius: 999px; }
+    .bar-pos { background: linear-gradient(90deg, #2cb67d, #62d6a6); }
+    .bar-neg { background: linear-gradient(90deg, #f97393, #ffb3c6); }
+    .delta-pos { color: var(--pos); font-weight: 700; }
+    .delta-neg { color: var(--neg); font-weight: 700; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .scroll-x { overflow-x: auto; }
+    .small { font-size: .85rem; color: var(--muted); }
+    @media (max-width: 980px) {
+      .layout, .bench-grid, .controls { grid-template-columns: 1fr; }
+      .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Musical Tuning Optimizer</h1>
-    <p class="subtitle">Client-side optimizer for GitHub Pages. Complexity remains O(C × P × T): chords × interval pairs × candidates.</p>
+    <p class="subtitle">Detailed temperament analytics with explicit 12-TET benchmarking. Runtime profile: full ranking is O(T × C × P), selected-detail diagnostics are O(S × C × P), where T=348 candidates, S≤5 selected temperaments, C=input chords, and P=interval pairs per chord.</p>
 
     <div class="grid layout">
       <section class="card">
         <h2>Chord inventory input</h2>
-        <p class="subtitle">One chord per line, format examples: <code>Am7,24,1.0</code>, <code>24x D/F# @0.8</code>.</p>
+        <p class="subtitle">One chord per line, examples: <code>Am7,24,1.0</code>, <code>24x D/F# @0.8</code>.</p>
         <textarea id="input">Am7,24,1.0
 D/F#,12,0.7
-Gsus4add9,9,0.8</textarea>
-        <h3 style="margin-top:12px;">Pair-weight multipliers</h3>
+Gsus4add9,9,0.8
+Cmaj7,18,1.0
+Fadd9,14,0.9</textarea>
+        <h3>Pair-weight multipliers</h3>
         <div class="grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
           <label class="label">Root↔(3|5)
             <input id="weight-root-third-fifth" type="number" step="0.05" value="1.5" style="width:100%; margin-top:6px;" />
@@ -72,20 +93,61 @@ Gsus4add9,9,0.8</textarea>
       </section>
 
       <section class="card">
-        <h2>Informative statistics</h2>
+        <h2>Global ranking statistics</h2>
         <div class="grid stats" id="stats"></div>
-        <h3 style="margin-top:16px;">Top contributors (best candidate)</h3>
+        <h3>Top contributors (best candidate)</h3>
         <div id="contributors" class="subtitle">Run optimization to view contributors.</div>
       </section>
     </div>
 
     <section class="card" style="margin-top:16px;">
       <h2>Top ranked temperaments</h2>
-      <table>
-        <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
+      <div class="scroll-x">
+        <table>
+          <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
       <p id="invalid" class="subtitle"></p>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <h2>Detailed candidate diagnostics</h2>
+      <div class="grid controls">
+        <label class="label">Temperament family
+          <select id="selected-family"></select>
+        </label>
+        <label class="label">Center
+          <select id="selected-center"></select>
+        </label>
+        <label class="label">Chord for interval detail
+          <select id="selected-chord"></select>
+        </label>
+      </div>
+      <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
+      <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
+        <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
+      </label>
+
+      <div id="candidate-score" style="margin-top:14px;"></div>
+
+      <div class="grid bench-grid" style="margin-top:14px;">
+        <div>
+          <h3>5 largest improvements vs 12-TET</h3>
+          <div id="improvements"></div>
+          <h3 style="margin-top:14px;">5 largest disimprovements vs 12-TET</h3>
+          <div id="disimprovements"></div>
+        </div>
+        <div>
+          <h3>5 closest chords to JI</h3>
+          <div id="closest"></div>
+          <h3 style="margin-top:14px;">5 furthest chords from JI</h3>
+          <div id="furthest"></div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:16px;">Interval-level chord breakdown (selected chord)</h3>
+      <div id="interval-breakdown" class="scroll-x"></div>
     </section>
   </div>
 <script>
@@ -100,6 +162,8 @@ const FIFTH_SIZES = {
   'Marpurg':700.050,'Sorge':699.950,'Bendeler I':699.850,'Bendeler II':699.750,'Bendeler III':699.650,'Silbermann I':699.550,'Silbermann II':699.450,'Schlick':699.350,
   'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
 };
+
+const appState = { ranked: [], invalid: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
 function parsePipeRow(raw, tableLayout) {
   if (!raw.includes('|')) return null;
@@ -121,10 +185,7 @@ function readPipeHeaderLayout(raw) {
   const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
   const lowered = cells.map(c => c.toLowerCase());
   if (!lowered.includes('chord') || !lowered.includes('frequency')) return null;
-  const symbolIdx = lowered.indexOf('chord');
-  const frequencyIdx = lowered.indexOf('frequency');
-  const weightIdx = lowered.includes('weight') ? lowered.indexOf('weight') : null;
-  return [symbolIdx, frequencyIdx, weightIdx];
+  return [lowered.indexOf('chord'), lowered.indexOf('frequency'), lowered.includes('weight') ? lowered.indexOf('weight') : null];
 }
 
 function isPipeSeparatorLine(raw) {
@@ -147,7 +208,6 @@ function parseGenericTriplet(raw) {
 function parseLine(raw, tableLayout) {
   const pipe = parsePipeRow(raw, tableLayout);
   if (pipe) return pipe;
-
   const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$/);
   if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: csv[3] && csv[3].trim() ? Number(csv[3]) : 1.0};
   const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?/);
@@ -155,8 +215,7 @@ function parseLine(raw, tableLayout) {
   if (raw.trim().startsWith('{')) {
     try {
       const data = JSON.parse(raw);
-      const weight = data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight);
-      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight};
+      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight: data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight)};
     } catch (_err) { return null; }
   }
   const x = raw.match(/^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$/);
@@ -179,11 +238,8 @@ function decodeFactors(body) {
   if (lower.includes('maj7') || lower.includes('ma7')) out.push('7');
   else if (lower.includes('7')) out.push('b7');
   else if (lower.includes('6')) out.push('6');
-
   for (const ext of ['b9','#9','9','11','#11','b13','13']) {
-    if (lower.includes(`add${ext}`) || lower.includes(ext)) {
-      if (!out.includes(ext)) out.push(ext);
-    }
+    if ((lower.includes(`add${ext}`) || lower.includes(ext)) && !out.includes(ext)) out.push(ext);
   }
   return [...new Set(out)];
 }
@@ -195,30 +251,26 @@ function factorToSemitone(factor) {
     accidentals += factor[i] === 'b' ? -1 : 1;
     i += 1;
   }
-  const degree = Number(factor.slice(i));
-  return BASE_DEGREE_TO_SEMITONE[degree] + accidentals;
+  return BASE_DEGREE_TO_SEMITONE[Number(factor.slice(i))] + accidentals;
 }
 
 function decodeChord(parsed) {
   const match = parsed.symbol.match(/^([A-G](?:#|b)?)(.*)$/);
   if (!match) return null;
-  const rootName = match[1];
+  const rootPc = NOTE_TO_PC[match[1]];
   const rest = match[2];
-  const rootPc = NOTE_TO_PC[rootName];
-  const slashIdx = rest.indexOf('/');
-  const body = slashIdx >= 0 ? rest.slice(0, slashIdx) : rest;
-  const bassName = slashIdx >= 0 ? rest.slice(slashIdx + 1) : null;
+  const slash = rest.indexOf('/');
+  const body = slash >= 0 ? rest.slice(0, slash) : rest;
+  const bassName = slash >= 0 ? rest.slice(slash + 1) : null;
   const bassPc = bassName ? NOTE_TO_PC[bassName] : rootPc;
   const factors = decodeFactors(body);
-  const factorSemitones = factors.map(factorToSemitone);
-  return {symbol: parsed.symbol, rootPc, bassPc, factors, factorSemitones, frequency: parsed.frequency, weight: parsed.weight};
+  return {symbol: parsed.symbol, rootPc, bassPc, factors, factorSemitones: factors.map(factorToSemitone), frequency: parsed.frequency, weight: parsed.weight};
 }
 
 function pairWeight(chord, leftFactor, rightFactor, span, weights) {
   let weight = 1.0;
   const lf = leftFactor.replace(/^[b#]+/, '');
   const rf = rightFactor.replace(/^[b#]+/, '');
-
   if ((lf === '1' || rf === '1') && (lf === '3' || rf === '3' || lf === '5' || rf === '5')) weight *= weights.rootThirdFifth;
   if (chord.bassPc !== chord.rootPc) weight *= weights.bassToAny;
   if ((lf === '1' || rf === '1') && (lf === '2' || rf === '2' || lf === '7' || rf === '7' || span % 12 === 6)) weight *= weights.rootToDissonance;
@@ -247,8 +299,7 @@ function buildPitchMap(fifthSize) {
   for (let i = 0; i < 12; i++) {
     values[pc] = cur;
     pc = (pc + 7) % 12;
-    cur += fifthSize;
-    while (cur >= 1200.0) cur -= 1200.0;
+    cur = (cur + fifthSize) % 1200.0;
   }
   const min = Math.min(...values);
   return values.map(v => ((v - min) % 1200.0 + 1200.0) % 1200.0).sort((a, b) => a - b);
@@ -256,8 +307,7 @@ function buildPitchMap(fifthSize) {
 
 function targetCents(semitoneSpan) {
   const octaves = Math.floor(semitoneSpan / 12);
-  const rem = ((semitoneSpan % 12) + 12) % 12;
-  return JI_BY_SEMITONE[rem] + 1200.0 * octaves;
+  return JI_BY_SEMITONE[((semitoneSpan % 12) + 12) % 12] + 1200.0 * octaves;
 }
 
 function scorePiece(chords, intervalMap, pitchMap) {
@@ -266,27 +316,23 @@ function scorePiece(chords, intervalMap, pitchMap) {
   let totalChordWeight = 0.0;
   const chordContribs = [];
   const intervalContribs = [];
-
   for (const chord of chords) {
     const intervals = intervalMap[chord.symbol] || [];
     if (!intervals.length) continue;
     let pairWeightSum = 0.0;
     let absSum = 0.0;
     let sqSum = 0.0;
-
     for (const pair of intervals) {
       const leftPc = (chord.rootPc + pair.leftSemitone + 1200) % 12;
       const rightPc = (chord.rootPc + pair.rightSemitone + 1200) % 12;
       let tempCents = (pitchMap[rightPc] - pitchMap[leftPc] + 1200.0) % 1200.0;
       if (pair.semitoneSpan >= 12) tempCents += 1200.0 * Math.floor(pair.semitoneSpan / 12);
       const err = Math.abs(tempCents - targetCents(pair.semitoneSpan));
-      const w = pair.weight;
-      pairWeightSum += w;
-      absSum += w * err;
-      sqSum += w * err * err;
-      intervalContribs.push([`${chord.symbol}:${pair.semitoneSpan}`, w * err]);
+      pairWeightSum += pair.weight;
+      absSum += pair.weight * err;
+      sqSum += pair.weight * err * err;
+      intervalContribs.push([`${chord.symbol}:${pair.semitoneSpan}`, pair.weight * err]);
     }
-
     const chordMae = absSum / pairWeightSum;
     const chordMse = sqSum / pairWeightSum;
     const cw = chord.frequency * chord.weight;
@@ -295,109 +341,221 @@ function scorePiece(chords, intervalMap, pitchMap) {
     totalChordWeight += cw;
     chordContribs.push([chord.symbol, cw * chordMae]);
   }
-
-  if (!totalChordWeight) return {wmae: 0, wrmse: 0, final: 0, topChords: [], topIntervals: []};
+  if (!totalChordWeight) return {wmae:0, wrmse:0, final:0, topChords:[], topIntervals:[]};
   const wmae = weightedMaeSum / totalChordWeight;
   const wrmse = Math.sqrt(weightedMseSum / totalChordWeight);
-  return {
-    wmae,
-    wrmse,
-    final: (wmae + wrmse) / 2,
-    topChords: chordContribs.sort((a, b) => b[1] - a[1]).slice(0, 5),
-    topIntervals: intervalContribs.sort((a, b) => b[1] - a[1]).slice(0, 5),
-  };
+  return {wmae, wrmse, final:(wmae + wrmse) / 2, topChords: chordContribs.sort((a,b) => b[1]-a[1]).slice(0,5), topIntervals: intervalContribs.sort((a,b) => b[1]-a[1]).slice(0,5)};
 }
 
-function optimize(lines, weights) {
+function analyzeCandidate(chords, intervalMap, pitchMap) {
+  const perChord = [];
+  for (const chord of chords) {
+    const intervals = intervalMap[chord.symbol] || [];
+    if (!intervals.length) continue;
+    let pairWeightSum = 0.0;
+    let weightedAbsSum = 0.0;
+    const details = [];
+    for (const pair of intervals) {
+      const leftPc = (chord.rootPc + pair.leftSemitone + 1200) % 12;
+      const rightPc = (chord.rootPc + pair.rightSemitone + 1200) % 12;
+      let tempCents = (pitchMap[rightPc] - pitchMap[leftPc] + 1200.0) % 1200.0;
+      if (pair.semitoneSpan >= 12) tempCents += 1200.0 * Math.floor(pair.semitoneSpan / 12);
+      const ji = targetCents(pair.semitoneSpan);
+      const error = Math.abs(tempCents - ji);
+      pairWeightSum += pair.weight;
+      weightedAbsSum += pair.weight * error;
+      details.push({label: `${pair.leftSemitone}→${pair.rightSemitone} (${pair.semitoneSpan} st)`, span: pair.semitoneSpan, ji, temperament: tempCents, error, weight: pair.weight});
+    }
+    perChord.push({symbol: chord.symbol, mae: pairWeightSum ? weightedAbsSum / pairWeightSum : 0, weightedContribution: chord.frequency * chord.weight * (pairWeightSum ? weightedAbsSum / pairWeightSum : 0), details});
+  }
+  return { perChord };
+}
+
+function optimize(lines) {
+  const defaultWeights = {
+    rootThirdFifth: 1.5,
+    bassToAny: 1.5,
+    rootToDissonance: 0.5,
+    compoundInterval: 0.75,
+  };
+  return optimizeWithWeights(lines, defaultWeights);
+}
+
+function optimizeWithWeights(lines, weights) {
   const parsed = [];
   const invalid = [];
   let tableLayout = null;
   for (const line of lines) {
     const raw = String(line).trim();
-    if (!raw) {
-      tableLayout = null;
-      continue;
-    }
+    if (!raw) { tableLayout = null; continue; }
     if (raw === '.' || raw === '…') continue;
-
     const headerLayout = readPipeHeaderLayout(raw);
-    if (headerLayout) {
-      tableLayout = headerLayout;
-      continue;
-    }
+    if (headerLayout) { tableLayout = headerLayout; continue; }
     if (isPipeSeparatorLine(raw)) continue;
     if (!raw.includes('|')) tableLayout = null;
-
     const one = parseLine(raw, tableLayout);
     if (one) parsed.push(one); else invalid.push(raw);
   }
 
   const chords = parsed.map(decodeChord).filter(Boolean);
   const intervalMap = Object.fromEntries(chords.map(chord => [chord.symbol, buildIntervals(chord, weights)]));
-
+  const pitchMaps = {};
   const records = [];
   for (const [family, fifthSize] of Object.entries(FIFTH_SIZES)) {
     const base = buildPitchMap(fifthSize);
     for (let centerIndex = 0; centerIndex < CENTERS.length; centerIndex++) {
       const center = CENTERS[centerIndex];
       const shifted = Array.from({length: 12}, (_, pc) => base[((pc - centerIndex) % 12 + 12) % 12]);
+      pitchMaps[`${family}__${center}`] = shifted;
       const scored = scorePiece(chords, intervalMap, shifted);
-      records.push({
-        family,
-        center,
-        wmae_cents: scored.wmae,
-        wrmse_cents: scored.wrmse,
-        final_score_cents: scored.final,
-        top_chord_contributors: scored.topChords,
-        top_interval_contributors: scored.topIntervals,
-      });
+      records.push({ family, center, wmae_cents: scored.wmae, wrmse_cents: scored.wrmse, final_score_cents: scored.final, top_chord_contributors: scored.topChords, top_interval_contributors: scored.topIntervals });
     }
   }
 
   records.sort((a, b) => a.final_score_cents - b.final_score_cents || a.wrmse_cents - b.wrmse_cents || a.wmae_cents - b.wmae_cents || a.family.localeCompare(b.family) || a.center.localeCompare(b.center));
-  return {ranked: records, invalid};
+  return {ranked: records, invalid, chords, intervalMap, pitchMaps};
 }
 
 function buildStats(ranked, invalid, inputLines) {
   const candidateCount = ranked.length;
   const validChords = Math.max(inputLines - invalid.length, 0);
-  if (!candidateCount) {
-    return {input_lines: inputLines, valid_chords: validChords, invalid_lines: invalid.length, candidate_count: 0, best_family: '-', best_center: '-', best_final_score_cents: 0, mean_final_score_cents: 0};
-  }
+  if (!candidateCount) return {input_lines: inputLines, valid_chords: validChords, invalid_lines: invalid.length, candidate_count: 0, best_family: '-', best_center: '-', best_final_score_cents: 0, mean_final_score_cents: 0};
   const best = ranked[0];
   const mean = ranked.reduce((acc, r) => acc + Number(r.final_score_cents), 0) / candidateCount;
-  return {
-    input_lines: inputLines,
-    valid_chords: validChords,
-    invalid_lines: invalid.length,
-    candidate_count: candidateCount,
-    best_family: best.family,
-    best_center: best.center,
-    best_final_score_cents: Number(best.final_score_cents),
-    mean_final_score_cents: mean,
-  };
+  return { input_lines: inputLines, valid_chords: validChords, invalid_lines: invalid.length, candidate_count: candidateCount, best_family: best.family, best_center: best.center, best_final_score_cents: Number(best.final_score_cents), mean_final_score_cents: mean };
 }
 
 function renderStats(stats) {
-  const items = [
-    ['Input lines', stats.input_lines], ['Valid chords', stats.valid_chords], ['Invalid lines', stats.invalid_lines], ['Candidates', stats.candidate_count],
-    ['Best family', stats.best_family], ['Best center', stats.best_center], ['Best final (cents)', stats.best_final_score_cents.toFixed(3)], ['Mean final (cents)', stats.mean_final_score_cents.toFixed(3)],
-  ];
+  const items = [['Input lines', stats.input_lines],['Valid chords', stats.valid_chords],['Invalid lines', stats.invalid_lines],['Candidates', stats.candidate_count],['Best family', stats.best_family],['Best center', stats.best_center],['Best final (cents)', stats.best_final_score_cents.toFixed(3)],['Mean final (cents)', stats.mean_final_score_cents.toFixed(3)]];
   document.getElementById('stats').innerHTML = items.map(([k, v]) => `<div class="stat"><div class="label">${k}</div><div class="value">${v}</div></div>`).join('');
 }
 
 function renderTable(ranked) {
-  document.getElementById('rows').innerHTML = ranked.slice(0, 12).map((r, idx) => `<tr><td>${idx + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`).join('');
+  document.getElementById('rows').innerHTML = ranked.slice(0, 15).map((r, idx) => `<tr><td>${idx + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`).join('');
 }
 
 function renderContributors(best) {
-  if (!best) {
-    document.getElementById('contributors').textContent = 'No contributor data available.';
-    return;
-  }
+  if (!best) { document.getElementById('contributors').textContent = 'No contributor data available.'; return; }
   const chords = (best.top_chord_contributors || []).map(([name, val]) => `${name} (${Number(val).toFixed(3)})`).join(', ');
   const intervals = (best.top_interval_contributors || []).map(([name, val]) => `${name} (${Number(val).toFixed(3)})`).join(', ');
   document.getElementById('contributors').innerHTML = `<div><strong>Chord impact:</strong> ${chords || '-'}</div><div style="margin-top:8px;"><strong>Interval impact:</strong> ${intervals || '-'}</div>`;
+}
+
+function renderDeltaBars(rows, elemId, positiveIsGood) {
+  if (!rows.length) { document.getElementById(elemId).innerHTML = '<p class="small">Not enough chord data.</p>'; return; }
+  const maxAbs = Math.max(...rows.map(row => Math.abs(row.delta)), 1e-9);
+  document.getElementById(elemId).innerHTML = rows.map(row => {
+    const width = Math.max(4, Math.round((Math.abs(row.delta) / maxAbs) * 100));
+    const cls = row.delta <= 0 ? 'bar-pos' : 'bar-neg';
+    const good = positiveIsGood ? row.delta >= 0 : row.delta <= 0;
+    const deltaClass = good ? 'delta-pos' : 'delta-neg';
+    return `<div style="margin-bottom:8px;"><div class="small mono">${row.symbol} · Δ=${row.delta.toFixed(3)} cents</div><div class="bar-bg"><div class="bar ${cls}" style="width:${width}%;"></div></div><div class="${deltaClass} small">selected=${row.selected.toFixed(3)} vs 12-TET=${row.baseline.toFixed(3)}</div></div>`;
+  }).join('');
+}
+
+function renderClosestFurthest(rows, elemId, reverse=false) {
+  if (!rows.length) { document.getElementById(elemId).innerHTML = '<p class="small">Not enough chord data.</p>'; return; }
+  const sorted = [...rows].sort((a,b) => reverse ? b.mae - a.mae : a.mae - b.mae).slice(0,5);
+  document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.mae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
+}
+
+function ensureAnalysis(family, center) {
+  const key = `${family}__${center}`;
+  if (!appState.selectedAnalyses[key]) {
+    appState.selectedAnalyses[key] = analyzeCandidate(appState.chords, appState.intervalMap, appState.pitchMaps[key]);
+  }
+  return appState.selectedAnalyses[key];
+}
+
+function renderCandidateDiagnostics() {
+  if (!appState.ranked.length || !appState.chords.length) {
+    document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
+    return;
+  }
+  const family = document.getElementById('selected-family').value;
+  const center = document.getElementById('selected-center').value;
+  const chord = document.getElementById('selected-chord').value;
+  const selectedRecord = appState.ranked.find(r => r.family === family && r.center === center);
+  const baselineRecord = appState.ranked.find(r => r.family === '12-TET baseline' && r.center === center);
+  const selectedAnalysis = ensureAnalysis(family, center);
+  const baselineAnalysis = ensureAnalysis('12-TET baseline', center);
+
+  const scoreDelta = selectedRecord.final_score_cents - baselineRecord.final_score_cents;
+  document.getElementById('candidate-score').innerHTML = `<div class="grid" style="grid-template-columns:repeat(3,minmax(120px,1fr));"><div class="stat"><div class="label">Selected final</div><div class="value">${selectedRecord.final_score_cents.toFixed(3)}</div></div><div class="stat"><div class="label">12-TET final</div><div class="value">${baselineRecord.final_score_cents.toFixed(3)}</div></div><div class="stat"><div class="label">Δ selected - 12-TET</div><div class="value ${scoreDelta <= 0 ? 'delta-pos' : 'delta-neg'}">${scoreDelta.toFixed(3)}</div></div></div>`;
+
+  const byChordSelected = Object.fromEntries(selectedAnalysis.perChord.map(row => [row.symbol, row]));
+  const byChordBaseline = Object.fromEntries(baselineAnalysis.perChord.map(row => [row.symbol, row]));
+  const deltas = selectedAnalysis.perChord.filter(row => byChordBaseline[row.symbol]).map(row => ({
+    symbol: row.symbol,
+    selected: row.mae,
+    baseline: byChordBaseline[row.symbol].mae,
+    delta: row.mae - byChordBaseline[row.symbol].mae,
+  }));
+
+  const improvements = [...deltas].sort((a,b) => a.delta - b.delta).slice(0,5);
+  const disimprovements = [...deltas].sort((a,b) => b.delta - a.delta).slice(0,5);
+  renderDeltaBars(improvements, 'improvements', false);
+  renderDeltaBars(disimprovements, 'disimprovements', true);
+
+  renderClosestFurthest(selectedAnalysis.perChord, 'closest', false);
+  renderClosestFurthest(selectedAnalysis.perChord, 'furthest', true);
+
+  const selectedComparisons = Array.from(document.getElementById('selected-comparisons').selectedOptions).map(opt => opt.value).slice(0, 5);
+  const comparisonKeys = [`12-TET baseline__${center}`, ...selectedComparisons.filter(v => v !== `12-TET baseline__${center}`)];
+  const chordRows = {};
+  for (const key of comparisonKeys) {
+    const [f, c] = key.split('__');
+    const analysis = ensureAnalysis(f, c);
+    const row = analysis.perChord.find(one => one.symbol === chord);
+    if (!row) continue;
+    for (const detail of row.details) {
+      const detailKey = detail.label;
+      if (!chordRows[detailKey]) chordRows[detailKey] = { label: detail.label, ji: detail.ji, spans: detail.span, values: {} };
+      chordRows[detailKey].values[key] = detail;
+    }
+  }
+
+  const columns = comparisonKeys.filter(key => key in appState.pitchMaps);
+  const intervalRows = Object.values(chordRows).sort((a,b) => a.spans - b.spans);
+  if (!intervalRows.length) {
+    document.getElementById('interval-breakdown').innerHTML = '<p class="small">No interval data for this chord selection.</p>';
+  } else {
+    document.getElementById('interval-breakdown').innerHTML = `<table><thead><tr><th>Interval</th><th>JI target</th>${columns.map(key => `<th>${key.replace('__', ' · ')} error</th>`).join('')}</tr></thead><tbody>${intervalRows.map(row => `<tr><td>${row.label}</td><td>${row.ji.toFixed(3)}</td>${columns.map(key => {
+      const value = row.values[key];
+      if (!value) return '<td>-</td>';
+      const cls = value.error <= 10 ? 'delta-pos' : 'delta-neg';
+      return `<td><span class="${cls}">${value.error.toFixed(3)}</span><div class="small">temp=${value.temperament.toFixed(3)}</div></td>`;
+    }).join('')}</tr>`).join('')}</tbody></table>`;
+  }
+}
+
+function initializeSelectors() {
+  const familyEl = document.getElementById('selected-family');
+  const centerEl = document.getElementById('selected-center');
+  const chordEl = document.getElementById('selected-chord');
+  const comparisonEl = document.getElementById('selected-comparisons');
+
+  familyEl.innerHTML = Object.keys(FIFTH_SIZES).map(name => `<option value="${name}">${name}</option>`).join('');
+  centerEl.innerHTML = CENTERS.map(center => `<option value="${center}">${center}</option>`).join('');
+  chordEl.innerHTML = appState.chords.map(chord => `<option value="${chord.symbol}">${chord.symbol}</option>`).join('');
+  comparisonEl.innerHTML = appState.ranked.map(r => `<option value="${r.family}__${r.center}">${r.family} · ${r.center}</option>`).join('');
+
+  if (appState.ranked.length) {
+    familyEl.value = appState.ranked[0].family;
+    centerEl.value = appState.ranked[0].center;
+    const defaultSelections = appState.ranked.slice(0, 5).map(r => `${r.family}__${r.center}`);
+    for (const option of comparisonEl.options) option.selected = defaultSelections.includes(option.value);
+  }
+
+  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons']) {
+    document.getElementById(id).addEventListener('change', () => {
+      if (id === 'selected-comparisons') {
+        const selected = Array.from(comparisonEl.selectedOptions);
+        if (selected.length > 5) selected[selected.length - 1].selected = false;
+      }
+      renderCandidateDiagnostics();
+    });
+  }
 }
 
 document.getElementById('run').addEventListener('click', () => {
@@ -412,12 +570,21 @@ document.getElementById('run').addEventListener('click', () => {
     rootToDissonance: Number(document.getElementById('weight-root-to-dissonance').value),
     compoundInterval: Number(document.getElementById('weight-compound-interval').value),
   };
-  const { ranked, invalid } = optimize(lines, weights);
-  const stats = buildStats(ranked, invalid, lines.length);
+  const result = optimizeWithWeights(lines, weights);
+  appState.ranked = result.ranked;
+  appState.invalid = result.invalid;
+  appState.chords = result.chords;
+  appState.intervalMap = result.intervalMap;
+  appState.pitchMaps = result.pitchMaps;
+  appState.selectedAnalyses = {};
+
+  const stats = buildStats(result.ranked, result.invalid, lines.length);
   renderStats(stats);
-  renderTable(ranked);
-  renderContributors(ranked[0]);
-  document.getElementById('invalid').textContent = invalid.length ? `Invalid lines (${invalid.length}): ${invalid.join(' | ')}` : 'No invalid lines.';
+  renderTable(result.ranked);
+  renderContributors(result.ranked[0]);
+  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines (${result.invalid.length}): ${result.invalid.join(' | ')}` : 'No invalid lines.';
+  initializeSelectors();
+  renderCandidateDiagnostics();
 
   status.textContent = 'Done';
   status.className = 'pill ok';
