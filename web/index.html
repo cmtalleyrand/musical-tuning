@@ -349,6 +349,7 @@ function scorePiece(chords, intervalMap, pitchMap) {
 
 function analyzeCandidate(chords, intervalMap, pitchMap) {
   const perChord = [];
+  const totalChordWeight = chords.reduce((sum, chord) => sum + chord.frequency * chord.weight, 0.0);
   for (const chord of chords) {
     const intervals = intervalMap[chord.symbol] || [];
     if (!intervals.length) continue;
@@ -366,7 +367,10 @@ function analyzeCandidate(chords, intervalMap, pitchMap) {
       weightedAbsSum += pair.weight * error;
       details.push({label: `${pair.leftSemitone}→${pair.rightSemitone} (${pair.semitoneSpan} st)`, span: pair.semitoneSpan, ji, temperament: tempCents, error, weight: pair.weight});
     }
-    perChord.push({symbol: chord.symbol, mae: pairWeightSum ? weightedAbsSum / pairWeightSum : 0, weightedContribution: chord.frequency * chord.weight * (pairWeightSum ? weightedAbsSum / pairWeightSum : 0), details});
+    const mae = pairWeightSum ? weightedAbsSum / pairWeightSum : 0;
+    const chordWeight = chord.frequency * chord.weight;
+    const weightedMae = totalChordWeight ? (chordWeight / totalChordWeight) * mae : 0;
+    perChord.push({symbol: chord.symbol, mae, weightedMae, weightedContribution: chordWeight * mae, details});
   }
   return { perChord };
 }
@@ -455,8 +459,8 @@ function renderDeltaBars(rows, elemId, positiveIsGood) {
 
 function renderClosestFurthest(rows, elemId, reverse=false) {
   if (!rows.length) { document.getElementById(elemId).innerHTML = '<p class="small">Not enough chord data.</p>'; return; }
-  const sorted = [...rows].sort((a,b) => reverse ? b.mae - a.mae : a.mae - b.mae).slice(0,5);
-  document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.mae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
+  const sorted = [...rows].sort((a,b) => reverse ? b.weightedMae - a.weightedMae : a.weightedMae - b.weightedMae).slice(0,5);
+  document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.weightedMae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
 }
 
 function ensureAnalysis(family, center) {
@@ -487,9 +491,9 @@ function renderCandidateDiagnostics() {
   const byChordBaseline = Object.fromEntries(baselineAnalysis.perChord.map(row => [row.symbol, row]));
   const deltas = selectedAnalysis.perChord.filter(row => byChordBaseline[row.symbol]).map(row => ({
     symbol: row.symbol,
-    selected: row.mae,
-    baseline: byChordBaseline[row.symbol].mae,
-    delta: row.mae - byChordBaseline[row.symbol].mae,
+    selected: row.weightedMae,
+    baseline: byChordBaseline[row.symbol].weightedMae,
+    delta: row.weightedMae - byChordBaseline[row.symbol].weightedMae,
   }));
 
   const improvements = [...deltas].sort((a,b) => a.delta - b.delta).slice(0,5);
