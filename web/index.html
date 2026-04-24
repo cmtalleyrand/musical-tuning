@@ -126,6 +126,11 @@ Fadd9,14,0.9</textarea>
         </label>
       </div>
       <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
+      <label class="label" style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="show-decoded-chord-model" type="checkbox" />
+        Show decoded chord model
+      </label>
+      <div id="decoded-chord-model" class="scroll-x" style="display:none; margin-top:8px;"></div>
       <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
         <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
       </label>
@@ -164,6 +169,7 @@ const FIFTH_SIZES = {
   'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
 };
 
+const appState = { ranked: [], invalid: [], chords: [], chordBySymbol: {}, intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 const appState = { ranked: [], invalid: [], invalidDetails: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
 function parsePipeRow(raw, tableLayout) {
@@ -528,6 +534,30 @@ function renderClosestFurthest(rows, elemId, reverse=false) {
   document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.weightedMae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
 }
 
+function renderDecodedChord(selectedSymbol) {
+  const showDecoded = document.getElementById('show-decoded-chord-model').checked;
+  const host = document.getElementById('decoded-chord-model');
+  if (!showDecoded) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const chord = appState.chordBySymbol[selectedSymbol];
+  if (!chord) {
+    host.style.display = 'block';
+    host.innerHTML = '<p class="small">No decoded chord model is available for this selection.</p>';
+    return;
+  }
+  host.style.display = 'block';
+  host.innerHTML = `<table><tbody>
+    <tr><th>symbol</th><td class="mono">${chord.symbol}</td></tr>
+    <tr><th>root pitch class</th><td>${chord.rootPc}</td></tr>
+    <tr><th>bass pitch class</th><td>${chord.bassPc}</td></tr>
+    <tr><th>factors</th><td class="mono">${chord.factors.join(', ')}</td></tr>
+    <tr><th>factor semitones</th><td class="mono">${chord.factorSemitones.join(', ')}</td></tr>
+  </tbody></table>`;
+}
+
 function ensureAnalysis(family, center) {
   const key = `${family}__${center}`;
   if (!appState.selectedAnalyses[key]) {
@@ -539,11 +569,13 @@ function ensureAnalysis(family, center) {
 function renderCandidateDiagnostics() {
   if (!appState.ranked.length || !appState.chords.length) {
     document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
+    renderDecodedChord(document.getElementById('selected-chord').value);
     return;
   }
   const family = document.getElementById('selected-family').value;
   const center = document.getElementById('selected-center').value;
   const chord = document.getElementById('selected-chord').value;
+  renderDecodedChord(chord);
   const selectedRecord = appState.ranked.find(r => r.family === family && r.center === center);
   const baselineRecord = appState.ranked.find(r => r.family === '12-TET baseline' && r.center === center);
   const selectedAnalysis = ensureAnalysis(family, center);
@@ -616,7 +648,7 @@ function initializeSelectors() {
     for (const option of comparisonEl.options) option.selected = defaultSelections.includes(option.value);
   }
 
-  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons']) {
+  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons', 'show-decoded-chord-model']) {
     document.getElementById(id).addEventListener('change', () => {
       if (id === 'selected-comparisons') {
         const selected = Array.from(comparisonEl.selectedOptions);
@@ -644,6 +676,7 @@ document.getElementById('run').addEventListener('click', () => {
   appState.invalid = result.invalid;
   appState.invalidDetails = result.invalidDetails;
   appState.chords = result.chords;
+  appState.chordBySymbol = Object.fromEntries(result.chords.map(chord => [chord.symbol, chord]));
   appState.intervalMap = result.intervalMap;
   appState.pitchMaps = result.pitchMaps;
   appState.selectedAnalyses = {};
