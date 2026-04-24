@@ -1,4 +1,11 @@
-from musical_tuning.optimizer import InputAdapter, ChordDecoder, MusicalTuningOptimizer, TemperamentRegistry
+from musical_tuning.optimizer import (
+    ChordDecoder,
+    InputAdapter,
+    IntervalBuilder,
+    MusicalTuningOptimizer,
+    TemperamentRegistry,
+    WeightEngine,
+)
 
 
 def test_input_adapter_parses_all_supported_formats():
@@ -46,3 +53,34 @@ def test_end_to_end_optimization_returns_ranked_schema():
         "top_chord_contributors",
         "top_interval_contributors",
     }
+
+
+def test_empty_or_invalid_input_returns_no_crash():
+    optimizer = MusicalTuningOptimizer()
+    ranked, invalid = optimizer.optimize_from_lines(["bad input"])
+
+    assert invalid == ["bad input"]
+    assert ranked
+    assert ranked[0]["final_score_cents"] == 0.0
+
+
+def test_interval_builder_keeps_ordered_semitones_in_pairs():
+    chord = ChordDecoder().decode(InputAdapter().parse_lines(["Cadd9,1,1.0"])[0][0])
+    pairs = IntervalBuilder().build(chord, WeightEngine())
+
+    spans = {pair.semitone_span for pair in pairs}
+    assert 14 in spans
+    pair_14 = [pair for pair in pairs if pair.semitone_span == 14][0]
+    assert pair_14.left_semitone == 0
+    assert pair_14.right_semitone == 14
+
+
+def test_root_to_third_fifth_weight_requires_root_factor():
+    chord = ChordDecoder().decode(InputAdapter().parse_lines(["Cmaj7,1,1.0"])[0][0])
+    weight_engine = WeightEngine()
+
+    no_root_weight = weight_engine.pair_weight(chord, "3", "5", span=3)
+    with_root_weight = weight_engine.pair_weight(chord, "1", "3", span=4)
+
+    assert no_root_weight == 1.0
+    assert with_root_weight == 1.5
