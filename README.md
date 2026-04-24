@@ -143,3 +143,18 @@ Each ranked record includes:
 - `final_score_cents`
 - `top_chord_contributors`
 - `top_interval_contributors`
+
+## Browser App
+
+Run the browser interface locally:
+
+```bash
+python -m musical_tuning.webapp
+```
+
+Then open `http://127.0.0.1:8000`.
+
+The UI exposes:
+- top-ranked temperaments with WMAE/WRMSE/final score,
+- best-candidate chord and interval contributors,
+- input quality statistics (valid/invalid lines, candidate count, best and mean final score).
