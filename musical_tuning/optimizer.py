@@ -328,15 +328,15 @@ class WeightEngine:
         self,
         tritone: float = 0.1,
         seconds_sevenths: float = 0.15,
-        thirds_sixths_fourth: float = 0.6,
-        fifth: float = 1.0,
+        thirds_sixths: float = 1.0,
+        fourth_fifth: float = 0.8,
         root_dissonant_chord_multiplier: float = 0.8,
         dominant_seventh_third_adjust_cents: float = 15.0,
     ) -> None:
         self.tritone = tritone
         self.seconds_sevenths = seconds_sevenths
-        self.thirds_sixths_fourth = thirds_sixths_fourth
-        self.fifth = fifth
+        self.thirds_sixths = thirds_sixth
+        self.fourth_fifth = fourth_fifth
         self.root_dissonant_chord_multiplier = root_dissonant_chord_multiplier
         self.dominant_seventh_third_adjust_cents = dominant_seventh_third_adjust_cents
 
@@ -347,11 +347,11 @@ class WeightEngine:
             return self.tritone
         if span_class in {1, 2, 10, 11}:
             return self.seconds_sevenths
-        if span_class in {3, 4, 5, 8, 9}:
-            return self.thirds_sixths_fourth
-        if span_class == 7:
-            return self.fifth
-        return self.fifth
+        if span_class in {3, 4, 8, 9}:
+            return self.thirds_sixths
+        if span_class == {5, 7}:
+            return self.fourth_fifth
+        return self.fourth_fifth
 
     def is_root_dissonance(self, left_factor: str, right_factor: str, span: int) -> bool:
         lf = left_factor.lstrip("b#")
@@ -548,8 +548,8 @@ class MusicalTuningOptimizer:
             else WeightEngine(
                 tritone=weights.get("tritone", self.weight_engine.tritone),
                 seconds_sevenths=weights.get("seconds_sevenths", self.weight_engine.seconds_sevenths),
-                thirds_sixths_fourth=weights.get("thirds_sixths_fourth", self.weight_engine.thirds_sixths_fourth),
-                fifth=weights.get("fifth", self.weight_engine.fifth),
+                thirds_sixths=weights.get("thirds_sixths", self.weight_engine.thirds_sixths),
+                fourth_fifth=weights.get("fourth_fifth", self.weight_engine.fourth_fifth),
                 root_dissonant_chord_multiplier=weights.get(
                     "root_dissonant_chord_multiplier",
                     self.weight_engine.root_dissonant_chord_multiplier,
