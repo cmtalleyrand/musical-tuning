@@ -50,6 +50,21 @@
         <textarea id="input">Am7,24,1.0
 D/F#,12,0.7
 Gsus4add9,9,0.8</textarea>
+        <h3 style="margin-top:12px;">Pair-weight multipliers</h3>
+        <div class="grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
+          <label class="label">Root↔(3|5)
+            <input id="weight-root-third-fifth" type="number" step="0.05" value="1.5" style="width:100%; margin-top:6px;" />
+          </label>
+          <label class="label">Bass↔any
+            <input id="weight-bass-to-any" type="number" step="0.05" value="1.5" style="width:100%; margin-top:6px;" />
+          </label>
+          <label class="label">Root↔dissonance
+            <input id="weight-root-to-dissonance" type="number" step="0.05" value="0.5" style="width:100%; margin-top:6px;" />
+          </label>
+          <label class="label">Compound interval
+            <input id="weight-compound-interval" type="number" step="0.05" value="0.75" style="width:100%; margin-top:6px;" />
+          </label>
+        </div>
         <div style="margin-top:12px;display:flex;gap:10px;align-items:center;">
           <button id="run">Optimize</button>
           <span id="status" class="pill ok">Ready</span>
@@ -154,23 +169,19 @@ function decodeChord(parsed) {
   return {symbol: parsed.symbol, rootPc, bassPc, factors, factorSemitones, frequency: parsed.frequency, weight: parsed.weight};
 }
 
-function pairWeight(chord, leftFactor, rightFactor, span) {
-  const rootThirdFifth = 1.5;
-  const bassToAny = 1.5;
-  const rootToDissonance = 0.5;
-  const compoundInterval = 0.75;
+function pairWeight(chord, leftFactor, rightFactor, span, weights) {
   let weight = 1.0;
   const lf = leftFactor.replace(/^[b#]+/, '');
   const rf = rightFactor.replace(/^[b#]+/, '');
 
-  if ((lf === '1' || rf === '1') && (lf === '3' || rf === '3' || lf === '5' || rf === '5')) weight *= rootThirdFifth;
-  if (chord.bassPc !== chord.rootPc) weight *= bassToAny;
-  if ((lf === '1' || rf === '1') && (lf === '2' || rf === '2' || lf === '7' || rf === '7' || span % 12 === 6)) weight *= rootToDissonance;
-  if (span >= 12) weight *= compoundInterval;
+  if ((lf === '1' || rf === '1') && (lf === '3' || rf === '3' || lf === '5' || rf === '5')) weight *= weights.rootThirdFifth;
+  if (chord.bassPc !== chord.rootPc) weight *= weights.bassToAny;
+  if ((lf === '1' || rf === '1') && (lf === '2' || rf === '2' || lf === '7' || rf === '7' || span % 12 === 6)) weight *= weights.rootToDissonance;
+  if (span >= 12) weight *= weights.compoundInterval;
   return weight;
 }
 
-function buildIntervals(chord) {
+function buildIntervals(chord, weights) {
   const ordered = chord.factorSemitones.map((s, i) => [i, s]).sort((a, b) => a[1] - b[1]);
   const factors = ordered.map(([i]) => chord.factors[i]);
   const semitones = ordered.map(([, s]) => s);
@@ -178,7 +189,7 @@ function buildIntervals(chord) {
   for (let i = 0; i < semitones.length; i++) {
     for (let j = i + 1; j < semitones.length; j++) {
       const span = semitones[j] - semitones[i];
-      out.push({leftSemitone: semitones[i], rightSemitone: semitones[j], semitoneSpan: span, weight: pairWeight(chord, factors[i], factors[j], span)});
+      out.push({leftSemitone: semitones[i], rightSemitone: semitones[j], semitoneSpan: span, weight: pairWeight(chord, factors[i], factors[j], span, weights)});
     }
   }
   return out;
@@ -252,7 +263,7 @@ function scorePiece(chords, intervalMap, pitchMap) {
   };
 }
 
-function optimize(lines) {
+function optimize(lines, weights) {
   const parsed = [];
   const invalid = [];
   for (const raw of lines.map(s => String(s).trim()).filter(Boolean)) {
@@ -261,7 +272,7 @@ function optimize(lines) {
   }
 
   const chords = parsed.map(decodeChord).filter(Boolean);
-  const intervalMap = Object.fromEntries(chords.map(chord => [chord.symbol, buildIntervals(chord)]));
+  const intervalMap = Object.fromEntries(chords.map(chord => [chord.symbol, buildIntervals(chord, weights)]));
 
   const records = [];
   for (const [family, fifthSize] of Object.entries(FIFTH_SIZES)) {
@@ -334,7 +345,13 @@ document.getElementById('run').addEventListener('click', () => {
   status.className = 'pill warn';
 
   const lines = document.getElementById('input').value.split(/\r?\n/);
-  const { ranked, invalid } = optimize(lines);
+  const weights = {
+    rootThirdFifth: Number(document.getElementById('weight-root-third-fifth').value),
+    bassToAny: Number(document.getElementById('weight-bass-to-any').value),
+    rootToDissonance: Number(document.getElementById('weight-root-to-dissonance').value),
+    compoundInterval: Number(document.getElementById('weight-compound-interval').value),
+  };
+  const { ranked, invalid } = optimize(lines, weights);
   const stats = buildStats(ranked, invalid, lines.length);
   renderStats(stats);
   renderTable(ranked);

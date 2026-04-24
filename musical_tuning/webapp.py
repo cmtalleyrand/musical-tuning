@@ -107,6 +107,21 @@ def _html() -> str:
         <h2>Chord inventory input</h2>
         <p class=\"subtitle\">Use one line per chord. Supported examples: <code>Am7,24,1.0</code>, <code>24x D/F# @0.8</code>.</p>
         <textarea id=\"input\">Am7,24,1.0\nD/F#,12,0.7\nGsus4add9,9,0.8</textarea>
+        <h3 style=\"margin-top:12px;\">Pair-weight multipliers</h3>
+        <div class=\"grid\" style=\"grid-template-columns: repeat(2, minmax(140px, 1fr));\">
+          <label class=\"label\">Root↔(3|5)
+            <input id=\"weight-root-third-fifth\" type=\"number\" step=\"0.05\" value=\"1.5\" style=\"width:100%; margin-top:6px;\" />
+          </label>
+          <label class=\"label\">Bass↔any
+            <input id=\"weight-bass-to-any\" type=\"number\" step=\"0.05\" value=\"1.5\" style=\"width:100%; margin-top:6px;\" />
+          </label>
+          <label class=\"label\">Root↔dissonance
+            <input id=\"weight-root-to-dissonance\" type=\"number\" step=\"0.05\" value=\"0.5\" style=\"width:100%; margin-top:6px;\" />
+          </label>
+          <label class=\"label\">Compound interval
+            <input id=\"weight-compound-interval\" type=\"number\" step=\"0.05\" value=\"0.75\" style=\"width:100%; margin-top:6px;\" />
+          </label>
+        </div>
         <div style=\"margin-top:12px; display:flex; gap:10px; align-items:center;\">
           <button id=\"run\">Optimize</button>
           <span id=\"status\" class=\"pill ok\">Ready</span>
@@ -134,6 +149,19 @@ def _html() -> str:
 const run = document.getElementById('run');
 const input = document.getElementById('input');
 const statusEl = document.getElementById('status');
+const weightRootThirdFifth = document.getElementById('weight-root-third-fifth');
+const weightBassToAny = document.getElementById('weight-bass-to-any');
+const weightRootToDissonance = document.getElementById('weight-root-to-dissonance');
+const weightCompoundInterval = document.getElementById('weight-compound-interval');
+
+function readWeights() {
+  return {
+    root_third_fifth: Number(weightRootThirdFifth.value),
+    bass_to_any: Number(weightBassToAny.value),
+    root_to_dissonance: Number(weightRootToDissonance.value),
+    compound_interval: Number(weightCompoundInterval.value),
+  };
+}
 
 function renderStats(stats) {
   const items = [
@@ -167,7 +195,7 @@ run.addEventListener('click', async () => {
   statusEl.textContent = 'Computing';
   statusEl.className = 'pill warn';
   const lines = input.value.split(/\r?\n/);
-  const response = await fetch('/api/optimize', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ lines }) });
+  const response = await fetch('/api/optimize', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ lines, weights: readWeights() }) });
   const data = await response.json();
   renderStats(data.stats);
   renderTable(data.ranked);
@@ -206,7 +234,14 @@ class _Handler(BaseHTTPRequestHandler):
         payload = self.rfile.read(content_length)
         data = json.loads(payload.decode("utf-8"))
         lines = [str(line) for line in data.get("lines", [])]
-        ranked, invalid = self.optimizer.optimize_from_lines(lines)
+        raw_weights = data.get("weights", {})
+        weights = {
+            "root_third_fifth": float(raw_weights.get("root_third_fifth", 1.5)),
+            "bass_to_any": float(raw_weights.get("bass_to_any", 1.5)),
+            "root_to_dissonance": float(raw_weights.get("root_to_dissonance", 0.5)),
+            "compound_interval": float(raw_weights.get("compound_interval", 0.75)),
+        }
+        ranked, invalid = self.optimizer.optimize_from_lines(lines, weights=weights)
         stats = build_statistics(ranked, invalid, len(lines))
 
         response = {

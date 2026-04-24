@@ -421,10 +421,24 @@ class MusicalTuningOptimizer:
         self.ranker = Ranker()
         self.reporter = Reporter()
 
-    def optimize_from_lines(self, lines: Iterable[str]) -> tuple[list[dict[str, object]], list[str]]:
+    def optimize_from_lines(
+        self,
+        lines: Iterable[str],
+        weights: dict[str, float] | None = None,
+    ) -> tuple[list[dict[str, object]], list[str]]:
         parsed, invalid = self.input_adapter.parse_lines(lines)
         chords = [self.decoder.decode(p) for p in parsed]
-        interval_map = {c.symbol: self.interval_builder.build(c, self.weight_engine) for c in chords}
+        weight_engine = (
+            self.weight_engine
+            if weights is None
+            else WeightEngine(
+                root_third_fifth=weights.get("root_third_fifth", self.weight_engine.root_third_fifth),
+                bass_to_any=weights.get("bass_to_any", self.weight_engine.bass_to_any),
+                root_to_dissonance=weights.get("root_to_dissonance", self.weight_engine.root_to_dissonance),
+                compound_interval=weights.get("compound_interval", self.weight_engine.compound_interval),
+            )
+        )
+        interval_map = {c.symbol: self.interval_builder.build(c, weight_engine) for c in chords}
 
         records: list[RankedRecord] = []
         for family, center, pitch_map in self.registry.candidates():
