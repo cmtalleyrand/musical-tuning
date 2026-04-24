@@ -101,6 +101,8 @@ class InputAdapter:
             raw = line.strip()
             if not raw:
                 continue
+            if raw == ".":
+                continue
             if self._md_header_re.match(raw) or self._md_separator_re.match(raw):
                 continue
             parsed_line = self._parse_line(raw)

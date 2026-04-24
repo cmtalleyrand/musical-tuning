@@ -33,6 +33,7 @@ def test_input_adapter_parses_all_supported_formats():
 
 def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one():
     lines = [
+        ".",
         "| chord | frequency | weight |",
         "|---|---|---|",
         "| A | 12 | 1.5 |",
