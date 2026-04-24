@@ -6,6 +6,7 @@ from musical_tuning.optimizer import (
     TemperamentRegistry,
     WeightEngine,
 )
+from musical_tuning.webapp import build_statistics
 
 
 def test_input_adapter_parses_all_supported_formats():
@@ -84,3 +85,21 @@ def test_root_to_third_fifth_weight_requires_root_factor():
 
     assert no_root_weight == 1.0
     assert with_root_weight == 1.5
+
+
+def test_build_statistics_reports_best_and_mean_scores():
+    ranked = [
+        {"family": "A", "center": "C", "final_score_cents": 1.0},
+        {"family": "B", "center": "D", "final_score_cents": 3.0},
+        {"family": "C", "center": "E", "final_score_cents": 5.0},
+    ]
+    stats = build_statistics(ranked, invalid=["bad"], input_lines=4)
+
+    assert stats.input_lines == 4
+    assert stats.valid_chords == 3
+    assert stats.invalid_lines == 1
+    assert stats.candidate_count == 3
+    assert stats.best_family == "A"
+    assert stats.best_center == "C"
+    assert stats.best_final_score_cents == 1.0
+    assert stats.mean_final_score_cents == 3.0
