@@ -9,4 +9,4 @@ def test_pages_workflow_deploys_browser_app_index():
     assert 'cp web/index.html site/index.html' in workflow
     html = index.read_text(encoding='utf-8')
     assert 'id="run"' in html
-    assert 'function optimize(lines)' in html
+    assert 'function optimize(lines, weights)' in html
