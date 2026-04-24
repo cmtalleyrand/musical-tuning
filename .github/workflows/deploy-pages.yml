@@ -24,35 +24,22 @@ jobs:
       - name: Build static page from README
         run: |
           mkdir -p site
-          python - <<'PY'
-from pathlib import Path
-import html
-
-readme = Path('README.md').read_text(encoding='utf-8')
-Path('site/index.html').write_text(
-    """<!doctype html>
-<html lang=\"en\">
-<head>
-  <meta charset=\"utf-8\" />
-  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
-  <title>Musical Tuning Optimizer</title>
-  <style>
-    body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.5; }
-    pre { white-space: pre-wrap; background: #f7f7f7; border: 1px solid #ddd; padding: 1rem; border-radius: 8px; }
-  </style>
-</head>
-<body>
-  <h1>Musical Tuning Optimizer</h1>
-  <p>This site is auto-deployed from <code>README.md</code>.</p>
-  <pre>"""
-    + html.escape(readme)
-    + """</pre>
-</body>
-</html>
-""",
-    encoding='utf-8',
-)
-PY
+          cp README.md site/README.md
+          printf '%s\n' \
+            '<!doctype html>' \
+            '<html lang="en">' \
+            '<head>' \
+            '  <meta charset="utf-8" />' \
+            '  <meta name="viewport" content="width=device-width, initial-scale=1" />' \
+            '  <title>Musical Tuning Optimizer</title>' \
+            '  <style>body { max-width: 900px; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; line-height: 1.5; }</style>' \
+            '</head>' \
+            '<body>' \
+            '  <h1>Musical Tuning Optimizer</h1>' \
+            '  <p>This page is published by GitHub Actions.</p>' \
+            '  <p>Project documentation: <a href="./README.md">README.md</a></p>' \
+            '</body>' \
+            '</html>' > site/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
