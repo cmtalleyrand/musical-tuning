@@ -51,9 +51,13 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .scroll-x { overflow-x: auto; }
     .small { font-size: .85rem; color: var(--muted); }
+    .ranking-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:10px; }
+    .ranking-filter-grid { display:grid; gap:10px; grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top:10px; }
+    .virtual-viewport { height: 360px; overflow-y: auto; border: 1px solid #2d365f; border-radius: 10px; margin-top: 10px; }
     @media (max-width: 980px) {
       .layout, .bench-grid, .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .ranking-filter-grid { grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
@@ -104,10 +108,36 @@ Fadd9,14,0.9</textarea>
     <section class="card" style="margin-top:16px;">
       <h2>Top ranked temperaments</h2>
       <div class="scroll-x">
-        <table>
+        <table id="top-ranking-table">
           <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
+      </div>
+      <div class="ranking-toolbar">
+        <button id="toggle-full-ranking">Expand full ranking</button>
+        <span id="ranking-count" class="small"></span>
+      </div>
+      <div id="full-ranking-panel" style="display:none;">
+        <div class="ranking-filter-grid">
+          <label class="label">Family filter
+            <select id="ranking-family-filter" style="width:100%; margin-top:6px;"></select>
+          </label>
+          <label class="label">Center filter
+            <select id="ranking-center-filter" style="width:100%; margin-top:6px;"></select>
+          </label>
+          <label class="label">Final score min
+            <input id="ranking-final-min" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+          </label>
+          <label class="label">Final score max
+            <input id="ranking-final-max" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+          </label>
+        </div>
+        <div id="ranking-virtual-viewport" class="virtual-viewport">
+          <table>
+            <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
+            <tbody id="full-ranking-rows"></tbody>
+          </table>
+        </div>
       </div>
       <p id="invalid" class="subtitle"></p>
     </section>
@@ -169,6 +199,15 @@ const FIFTH_SIZES = {
   'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
 };
 
+const appState = {
+  ranked: [],
+  invalid: [],
+  chords: [],
+  intervalMap: {},
+  pitchMaps: {},
+  selectedAnalyses: {},
+  rankingView: { expanded: false, filtered: [], startIndex: 0, visibleCount: 0, scrollTop: 0, rowHeight: 38 },
+};
 const appState = { ranked: [], invalid: [], chords: [], chordBySymbol: {}, intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 const appState = { ranked: [], invalid: [], invalidDetails: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
@@ -480,33 +519,96 @@ function renderTable(ranked) {
   document.getElementById('rows').innerHTML = ranked.slice(0, 15).map((r, idx) => `<tr><td>${idx + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`).join('');
 }
 
-function escapeHtml(value) {
-  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
-}
-
-function focusInputLine(lineIndex) {
-  const textarea = document.getElementById('input');
-  const allLines = textarea.value.split(/\r?\n/);
-  if (lineIndex < 0 || lineIndex >= allLines.length) return;
-  let start = 0;
-  for (let idx = 0; idx < lineIndex; idx += 1) start += allLines[idx].length + 1;
-  const end = start + allLines[lineIndex].length;
-  textarea.focus();
-  textarea.setSelectionRange(start, end);
-  const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 20;
-  textarea.scrollTop = Math.max(0, lineIndex * lineHeight - 2 * lineHeight);
-}
-
-function renderInvalidDetails(invalidDetails) {
-  const host = document.getElementById('invalid-details');
-  if (!invalidDetails.length) {
-    host.innerHTML = '';
+function renderExpandedRankingRows() {
+  const tbody = document.getElementById('full-ranking-rows');
+  const viewport = document.getElementById('ranking-virtual-viewport');
+  const rows = appState.rankingView.filtered;
+  const total = rows.length;
+  if (!total) {
+    tbody.innerHTML = '<tr><td colspan="6" class="small">No candidates match the current filters.</td></tr>';
+    document.getElementById('ranking-count').textContent = 'Filtered candidates: 0';
     return;
   }
-  host.innerHTML = `<h3>Invalid rows</h3><div class="scroll-x"><table><thead><tr><th>Line</th><th>Raw</th><th>Reason</th></tr></thead><tbody>${invalidDetails.map(row => `<tr data-line-index="${row.lineIndex}" style="cursor:pointer;"><td>${row.lineNumber}</td><td class="mono">${escapeHtml(row.raw)}</td><td><span class="pill warn">${escapeHtml(row.reason)}</span></td></tr>`).join('')}</tbody></table></div>`;
-  for (const row of host.querySelectorAll('tr[data-line-index]')) {
-    row.addEventListener('click', () => focusInputLine(Number(row.dataset.lineIndex)));
+
+  const viewportHeight = viewport.clientHeight || 360;
+  const overscan = 4;
+  const visible = Math.ceil(viewportHeight / appState.rankingView.rowHeight) + overscan * 2;
+  appState.rankingView.visibleCount = visible;
+  const maxStart = Math.max(total - visible, 0);
+  appState.rankingView.startIndex = Math.min(Math.max(Math.floor(appState.rankingView.scrollTop / appState.rankingView.rowHeight) - overscan, 0), maxStart);
+  const endIndex = Math.min(appState.rankingView.startIndex + visible, total);
+  const topPad = appState.rankingView.startIndex * appState.rankingView.rowHeight;
+  const bottomPad = (total - endIndex) * appState.rankingView.rowHeight;
+
+  const sliceRows = rows.slice(appState.rankingView.startIndex, endIndex)
+    .map((r, idx) => {
+      const absoluteIndex = appState.rankingView.startIndex + idx;
+      return `<tr><td>${absoluteIndex + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`;
+    }).join('');
+
+  const topSpacer = topPad > 0 ? `<tr><td colspan="6" style="height:${topPad}px; padding:0; border-bottom:none;"></td></tr>` : '';
+  const bottomSpacer = bottomPad > 0 ? `<tr><td colspan="6" style="height:${bottomPad}px; padding:0; border-bottom:none;"></td></tr>` : '';
+  tbody.innerHTML = `${topSpacer}${sliceRows}${bottomSpacer}`;
+  document.getElementById('ranking-count').textContent = `Filtered candidates: ${total} / ${appState.ranked.length}`;
+}
+
+function applyRankingFilters(resetScroll = true) {
+  const family = document.getElementById('ranking-family-filter').value;
+  const center = document.getElementById('ranking-center-filter').value;
+  const minText = document.getElementById('ranking-final-min').value;
+  const maxText = document.getElementById('ranking-final-max').value;
+  const min = minText === '' ? -Infinity : Number(minText);
+  const max = maxText === '' ? Infinity : Number(maxText);
+
+  appState.rankingView.filtered = appState.ranked.filter(row => {
+    if (family !== 'ALL' && row.family !== family) return false;
+    if (center !== 'ALL' && row.center !== center) return false;
+    return row.final_score_cents >= min && row.final_score_cents <= max;
+  });
+
+  if (resetScroll) {
+    appState.rankingView.scrollTop = 0;
+    appState.rankingView.startIndex = 0;
+    document.getElementById('ranking-virtual-viewport').scrollTop = 0;
   }
+  renderExpandedRankingRows();
+}
+
+function initializeRankingPanel() {
+  const familyFilter = document.getElementById('ranking-family-filter');
+  const centerFilter = document.getElementById('ranking-center-filter');
+  const toggleButton = document.getElementById('toggle-full-ranking');
+  const panel = document.getElementById('full-ranking-panel');
+  const viewport = document.getElementById('ranking-virtual-viewport');
+
+  const families = Array.from(new Set(appState.ranked.map(row => row.family)));
+  familyFilter.innerHTML = ['<option value="ALL">All families</option>', ...families.map(name => `<option value="${name}">${name}</option>`)].join('');
+  centerFilter.innerHTML = ['<option value="ALL">All centers</option>', ...CENTERS.map(center => `<option value="${center}">${center}</option>`)].join('');
+  document.getElementById('ranking-final-min').value = '';
+  document.getElementById('ranking-final-max').value = '';
+
+  panel.style.display = appState.rankingView.expanded ? 'block' : 'none';
+  toggleButton.textContent = appState.rankingView.expanded ? 'Collapse full ranking' : 'Expand full ranking';
+
+  if (!toggleButton.dataset.bound) {
+    toggleButton.addEventListener('click', () => {
+      appState.rankingView.expanded = !appState.rankingView.expanded;
+      panel.style.display = appState.rankingView.expanded ? 'block' : 'none';
+      toggleButton.textContent = appState.rankingView.expanded ? 'Collapse full ranking' : 'Expand full ranking';
+      if (appState.rankingView.expanded) renderExpandedRankingRows();
+    });
+    for (const id of ['ranking-family-filter', 'ranking-center-filter', 'ranking-final-min', 'ranking-final-max']) {
+      document.getElementById(id).addEventListener('input', () => applyRankingFilters(true));
+      document.getElementById(id).addEventListener('change', () => applyRankingFilters(true));
+    }
+    viewport.addEventListener('scroll', () => {
+      appState.rankingView.scrollTop = viewport.scrollTop;
+      renderExpandedRankingRows();
+    });
+    toggleButton.dataset.bound = '1';
+  }
+
+  applyRankingFilters(true);
 }
 
 function renderContributors(best) {
@@ -684,6 +786,7 @@ document.getElementById('run').addEventListener('click', () => {
   const stats = buildStats(result.ranked, result.invalid, lines.length);
   renderStats(stats);
   renderTable(result.ranked);
+  initializeRankingPanel();
   renderInvalidDetails(result.invalidDetails);
   renderContributors(result.ranked[0]);
   document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines: ${result.invalid.length}.` : 'Invalid lines: 0.';
