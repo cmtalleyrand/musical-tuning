@@ -12,22 +12,32 @@ from musical_tuning.webapp import build_statistics
 def test_input_adapter_parses_all_supported_formats():
     lines = [
         "Am7,24,1.0",
+        "Am7,24",
         "Am7 | 24 | 1.0",
+        "Am7 | 24",
         "| Am7 | 24 |  |",
         "symbol=Am7 frequency=24 weight=1.0",
+        "symbol=Am7 frequency=24",
         '{"symbol":"Am7","frequency":24,"weight":1.0}',
+        '{"symbol":"Am7","frequency":24}',
         "24x Am7 @1.0",
+        "24x Am7",
+        "Am7 24",
+        "Am7\t24\t0.25",
+        "[Am7] [24] [0.5]",
+        "Am7;24;0.75",
         "not valid",
     ]
     parsed, invalid = InputAdapter().parse_lines(lines)
 
-    assert len(parsed) == 6
-    assert parsed[2].weight == 1.0
+    assert len(parsed) == 15
+    assert [chord.weight for chord in parsed] == [1.0] * 11 + [1.0, 0.25, 0.5, 0.75]
     assert invalid == ["not valid"]
 
 
 def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one():
     lines = [
+        ".",
         "| chord | frequency | weight |",
         "|---|---|---|",
         "| A | 12 | 1.5 |",
@@ -40,6 +50,62 @@ def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one(
     assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7"]
     assert [chord.frequency for chord in parsed] == [12, 1, 4]
     assert [chord.weight for chord in parsed] == [1.5, 1.0, 1.0]
+
+
+def test_input_adapter_parses_user_table_shape_with_blank_weights():
+    lines = [
+        ".",
+        "| Chord | Frequency | weight|",
+        "|---|---|---|",
+        "| A | 12 |  |",
+        "| A7 | 1 |  |",
+        "| AM7 | 4 |  |",
+        "| Am7 | 1 |  |",
+        "| Bb | 1 |  |",
+        "| C#sus2 | 3 |  |",
+        "| G#m | 10 |  |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7", "Am7", "Bb", "C#sus2", "G#m"]
+    assert [chord.frequency for chord in parsed] == [12, 1, 4, 1, 1, 3, 10]
+    assert [chord.weight for chord in parsed] == [1.0] * 7
+
+
+def test_input_adapter_parses_first_six_rows_from_user_table_exactly():
+    lines = [
+        ".",
+        "| Chord | Frequency | weight|",
+        "|---|---|---|",
+        "| A | 12 |  |",
+        "| A7 | 1 |  |",
+        "| AM7 | 4 |  |",
+        "| Am7 | 1 |  |",
+        "| B | 3 |  |",
+        "| B7 | 6 |  |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7", "Am7", "B", "B7"]
+    assert [chord.frequency for chord in parsed] == [12, 1, 4, 1, 3, 6]
+    assert [chord.weight for chord in parsed] == [1.0] * 6
+
+
+def test_input_adapter_uses_pipe_header_column_positions():
+    lines = [
+        "| weight | chord | frequency | notes |",
+        "|---|---|---|---|",
+        "|  | A | 12 | tonic |",
+        "| 0.25 | E7 | 8 | dominant |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "E7"]
+    assert [chord.frequency for chord in parsed] == [12, 8]
+    assert [chord.weight for chord in parsed] == [1.0, 0.25]
 
 
 def test_decoder_preserves_bass_and_extensions():

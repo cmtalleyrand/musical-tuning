@@ -87,31 +87,47 @@ class RankedRecord:
 
 
 class InputAdapter:
-    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$")
-    _pipe_re = re.compile(r"^\s*\|?\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)?\s*\|?\s*$")
-    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)")
-    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$")
-    _md_header_re = re.compile(r"^\s*\|?\s*chord\s*\|\s*frequency\s*\|\s*weight\s*\|?\s*$", re.IGNORECASE)
-    _md_separator_re = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|?\s*$")
+    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$")
+    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?")
+    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$")
+    _md_separator_cell_re = re.compile(r"^:?-{3,}:?$")
+    _generic_delimiter_re = re.compile(r"[,\t; ]+")
 
     def parse_lines(self, lines: Iterable[str]) -> tuple[list[ParsedChordInput], list[str]]:
         parsed: list[ParsedChordInput] = []
         invalid: list[str] = []
+        table_layout: tuple[int, int, int | None] | None = None
         for line in lines:
             raw = line.strip()
             if not raw:
+                table_layout = None
                 continue
-            if self._md_header_re.match(raw) or self._md_separator_re.match(raw):
+            if raw in {".", "…"}:
                 continue
-            parsed_line = self._parse_line(raw)
+
+            header_layout = self._read_pipe_header_layout(raw)
+            if header_layout is not None:
+                table_layout = header_layout
+                continue
+
+            if self._is_pipe_separator_line(raw):
+                continue
+
+            if "|" not in raw:
+                table_layout = None
+            parsed_line = self._parse_line(raw, table_layout)
             if parsed_line is None:
                 invalid.append(raw)
             else:
                 parsed.append(parsed_line)
         return parsed, invalid
 
-    def _parse_line(self, raw: str) -> ParsedChordInput | None:
-        for regex in (self._csv_re, self._pipe_re, self._kv_re):
+    def _parse_line(self, raw: str, table_layout: tuple[int, int, int | None] | None) -> ParsedChordInput | None:
+        parsed_pipe = self._parse_pipe_row(raw, table_layout)
+        if parsed_pipe is not None:
+            return parsed_pipe
+
+        for regex in (self._csv_re, self._kv_re):
             m = regex.search(raw)
             if m:
                 weight_str = m.group(3)
@@ -121,14 +137,90 @@ class InputAdapter:
         if raw.startswith("{"):
             try:
                 data = json.loads(raw)
-                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=float(data["weight"]))
+                weight = 1.0 if "weight" not in data or data["weight"] in (None, "") else float(data["weight"])
+                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=weight)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 return None
 
         m = self._x_re.search(raw)
         if m:
-            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=float(m.group(3)))
+            weight_str = m.group(3)
+            weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=weight)
+
+        generic = self._parse_generic_triplet(raw)
+        if generic is not None:
+            return generic
         return None
+
+    def _parse_pipe_row(self, raw: str, table_layout: tuple[int, int, int | None] | None) -> ParsedChordInput | None:
+        if "|" not in raw:
+            return None
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        if len(cells) < 2 or all(cell == "" for cell in cells):
+            return None
+
+        layout = table_layout if table_layout is not None else (0, 1, 2 if len(cells) > 2 else None)
+        symbol_idx, frequency_idx, weight_idx = layout
+        try:
+            symbol = cells[symbol_idx]
+            frequency = int(cells[frequency_idx])
+        except (ValueError, IndexError):
+            return None
+
+        weight_str = cells[weight_idx] if weight_idx is not None and weight_idx < len(cells) else ""
+        try:
+            weight = 1.0 if weight_str == "" else float(weight_str)
+        except ValueError:
+            return None
+        return ParsedChordInput(symbol=symbol, frequency=frequency, weight=weight)
+
+    def _read_pipe_header_layout(self, raw: str) -> tuple[int, int, int | None] | None:
+        if "|" not in raw:
+            return None
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        lowered = [cell.lower() for cell in cells]
+        if "chord" not in lowered or "frequency" not in lowered:
+            return None
+
+        symbol_idx = lowered.index("chord")
+        frequency_idx = lowered.index("frequency")
+        weight_idx = lowered.index("weight") if "weight" in lowered else None
+        return (symbol_idx, frequency_idx, weight_idx)
+
+    def _is_pipe_separator_line(self, raw: str) -> bool:
+        if "|" not in raw:
+            return False
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        return all(self._md_separator_cell_re.match(cell) for cell in cells if cell)
+
+    def _parse_generic_triplet(self, raw: str) -> ParsedChordInput | None:
+        normalized = raw.strip()
+        for left, right in (("[", "]"), ("(", ")"), ('"', '"'), ("'", "'")):
+            normalized = normalized.replace(left, " ").replace(right, " ")
+
+        parts = [p for p in self._generic_delimiter_re.split(normalized) if p]
+        if len(parts) < 2 or len(parts) > 3:
+            return None
+
+        symbol = parts[0].strip()
+        if not symbol:
+            return None
+
+        try:
+            frequency = int(parts[1])
+        except ValueError:
+            return None
+
+        weight_str = parts[2].strip() if len(parts) == 3 else ""
+        try:
+            weight = 1.0 if weight_str == "" else float(weight_str)
+        except ValueError:
+            return None
+        return ParsedChordInput(symbol=symbol, frequency=frequency, weight=weight)
 
 
 class ChordDecoder:
