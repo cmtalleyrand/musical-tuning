@@ -12,22 +12,28 @@ from musical_tuning.webapp import build_statistics
 def test_input_adapter_parses_all_supported_formats():
     lines = [
         "Am7,24,1.0",
+        "Am7,24",
         "Am7 | 24 | 1.0",
+        "Am7 | 24",
         "| Am7 | 24 |  |",
         "symbol=Am7 frequency=24 weight=1.0",
+        "symbol=Am7 frequency=24",
         '{"symbol":"Am7","frequency":24,"weight":1.0}',
+        '{"symbol":"Am7","frequency":24}',
         "24x Am7 @1.0",
+        "24x Am7",
         "not valid",
     ]
     parsed, invalid = InputAdapter().parse_lines(lines)
 
-    assert len(parsed) == 6
-    assert parsed[2].weight == 1.0
+    assert len(parsed) == 11
+    assert [chord.weight for chord in parsed] == [1.0] * 11
     assert invalid == ["not valid"]
 
 
 def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one():
     lines = [
+        ".",
         "| chord | frequency | weight |",
         "|---|---|---|",
         "| A | 12 | 1.5 |",
