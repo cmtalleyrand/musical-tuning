@@ -13,6 +13,7 @@ def test_input_adapter_parses_all_supported_formats():
     lines = [
         "Am7,24,1.0",
         "Am7 | 24 | 1.0",
+        "| Am7 | 24 |  |",
         "symbol=Am7 frequency=24 weight=1.0",
         '{"symbol":"Am7","frequency":24,"weight":1.0}',
         "24x Am7 @1.0",
@@ -20,8 +21,25 @@ def test_input_adapter_parses_all_supported_formats():
     ]
     parsed, invalid = InputAdapter().parse_lines(lines)
 
-    assert len(parsed) == 5
+    assert len(parsed) == 6
+    assert parsed[2].weight == 1.0
     assert invalid == ["not valid"]
+
+
+def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one():
+    lines = [
+        "| chord | frequency | weight |",
+        "|---|---|---|",
+        "| A | 12 | 1.5 |",
+        "| A7 | 1 |  |",
+        "| AM7 | 4 | |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7"]
+    assert [chord.frequency for chord in parsed] == [12, 1, 4]
+    assert [chord.weight for chord in parsed] == [1.5, 1.0, 1.0]
 
 
 def test_decoder_preserves_bass_and_extensions():

@@ -158,8 +158,3 @@ The UI exposes:
 - top-ranked temperaments with WMAE/WRMSE/final score,
 - best-candidate chord and interval contributors,
 - input quality statistics (valid/invalid lines, candidate count, best and mean final score).
-
-## GitHub Pages behavior
-
-The GitHub Pages deployment runs a **static client-side version** from `web/index.html` (no Python server on Pages).  
-This avoids a backend dependency and executes optimization in the browser with the same asymptotic scoring complexity `O(C × P × T)`.
