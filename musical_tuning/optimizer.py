@@ -73,6 +73,8 @@ class IntervalPair:
     right_semitone: int
     semitone_span: int
     weight: float
+    target_adjust_cents: float
+    root_dissonant: bool
 
 
 @dataclass(frozen=True)
@@ -314,6 +316,8 @@ class IntervalBuilder:
                         right_semitone=semitones[j],
                         semitone_span=span,
                         weight=weight_engine.pair_weight(chord, factors[i], factors[j], span),
+                        target_adjust_cents=weight_engine.target_adjust_cents(chord, factors[i], factors[j], span),
+                        root_dissonant=weight_engine.is_root_dissonance(factors[i], factors[j], span),
                     )
                 )
         return tuple(out)
@@ -322,34 +326,54 @@ class IntervalBuilder:
 class WeightEngine:
     def __init__(
         self,
-        root_third_fifth: float = 1.5,
-        bass_to_any: float = 1.5,
-        root_to_dissonance: float = 0.5,
-        compound_interval: float = 0.75,
+        tritone: float = 0.1,
+        seconds_sevenths: float = 0.15,
+        thirds_sixths_fourth: float = 0.6,
+        fifth: float = 1.0,
+        root_dissonant_chord_multiplier: float = 0.8,
+        dominant_seventh_third_adjust_cents: float = 15.0,
     ) -> None:
-        self.root_third_fifth = root_third_fifth
-        self.bass_to_any = bass_to_any
-        self.root_to_dissonance = root_to_dissonance
-        self.compound_interval = compound_interval
+        self.tritone = tritone
+        self.seconds_sevenths = seconds_sevenths
+        self.thirds_sixths_fourth = thirds_sixths_fourth
+        self.fifth = fifth
+        self.root_dissonant_chord_multiplier = root_dissonant_chord_multiplier
+        self.dominant_seventh_third_adjust_cents = dominant_seventh_third_adjust_cents
 
     def pair_weight(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
-        weight = 1.0
+        span_class = span % 12
+
+        if span_class == 6:
+            return self.tritone
+        if span_class in {1, 2, 10, 11}:
+            return self.seconds_sevenths
+        if span_class in {3, 4, 5, 8, 9}:
+            return self.thirds_sixths_fourth
+        if span_class == 7:
+            return self.fifth
+        return self.fifth
+
+    def is_root_dissonance(self, left_factor: str, right_factor: str, span: int) -> bool:
         lf = left_factor.lstrip("b#")
         rf = right_factor.lstrip("b#")
+        if "1" not in {lf, rf}:
+            return False
 
-        if ("1" in {lf, rf}) and (lf in {"3", "5"} or rf in {"3", "5"}):
-            weight *= self.root_third_fifth
+        span_class = span % 12
+        return span_class in {1, 2, 6, 10, 11}
 
-        if chord.bass_pc != chord.root_pc:
-            weight *= self.bass_to_any
+    def target_adjust_cents(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
+        lf = left_factor.lstrip("b#")
+        rf = right_factor.lstrip("b#")
+        is_dominant_seventh = "3" in chord.factors and "b7" in chord.factors and "7" not in chord.factors
+        if is_dominant_seventh and span % 12 in {3, 4} and {lf, rf} != {"1", "5"}:
+            return self.dominant_seventh_third_adjust_cents
+        return 0.0
 
-        if {lf, rf} & {"1"} and ((lf in {"2", "7"} or rf in {"2", "7"}) or span % 12 == 6):
-            weight *= self.root_to_dissonance
-
-        if span >= 12:
-            weight *= self.compound_interval
-
-        return weight
+    def chord_multiplier(self, intervals: tuple[IntervalPair, ...]) -> float:
+        if any(pair.root_dissonant for pair in intervals):
+            return self.root_dissonant_chord_multiplier
+        return 1.0
 
 
 class TemperamentRegistry:
@@ -426,6 +450,7 @@ class ScoringEngine:
         chords: Iterable[CanonicalChord],
         interval_map: dict[str, tuple[IntervalPair, ...]],
         pitch_map: tuple[float, ...],
+        weight_engine: WeightEngine,
     ) -> tuple[float, float, float, list[tuple[str, float]], list[tuple[str, float]]]:
         weighted_mae_sum = 0.0
         weighted_mse_sum = 0.0
@@ -450,7 +475,7 @@ class ScoringEngine:
                 if pair.semitone_span >= 12:
                     temp_cents += 1200.0 * (pair.semitone_span // 12)
 
-                ji = self.ji_reference.target_cents(pair.semitone_span)
+                ji = self.ji_reference.target_cents(pair.semitone_span) + pair.target_adjust_cents
                 err = abs(temp_cents - ji)
                 w = pair.weight
 
@@ -461,7 +486,7 @@ class ScoringEngine:
 
             chord_mae = abs_sum / pair_weight_sum
             chord_mse = sq_sum / pair_weight_sum
-            cw = chord.frequency * chord.weight
+            cw = chord.frequency * chord.weight * weight_engine.chord_multiplier(intervals)
             weighted_mae_sum += cw * chord_mae
             weighted_mse_sum += cw * chord_mse
             total_chord_weight += cw
@@ -521,17 +546,30 @@ class MusicalTuningOptimizer:
             self.weight_engine
             if weights is None
             else WeightEngine(
-                root_third_fifth=weights.get("root_third_fifth", self.weight_engine.root_third_fifth),
-                bass_to_any=weights.get("bass_to_any", self.weight_engine.bass_to_any),
-                root_to_dissonance=weights.get("root_to_dissonance", self.weight_engine.root_to_dissonance),
-                compound_interval=weights.get("compound_interval", self.weight_engine.compound_interval),
+                tritone=weights.get("tritone", self.weight_engine.tritone),
+                seconds_sevenths=weights.get("seconds_sevenths", self.weight_engine.seconds_sevenths),
+                thirds_sixths_fourth=weights.get("thirds_sixths_fourth", self.weight_engine.thirds_sixths_fourth),
+                fifth=weights.get("fifth", self.weight_engine.fifth),
+                root_dissonant_chord_multiplier=weights.get(
+                    "root_dissonant_chord_multiplier",
+                    self.weight_engine.root_dissonant_chord_multiplier,
+                ),
+                dominant_seventh_third_adjust_cents=weights.get(
+                    "dominant_seventh_third_adjust_cents",
+                    self.weight_engine.dominant_seventh_third_adjust_cents,
+                ),
             )
         )
         interval_map = {c.symbol: self.interval_builder.build(c, weight_engine) for c in chords}
 
         records: list[RankedRecord] = []
         for family, center, pitch_map in self.registry.candidates():
-            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(chords, interval_map, pitch_map)
+            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(
+                chords,
+                interval_map,
+                pitch_map,
+                weight_engine,
+            )
             records.append(
                 RankedRecord(
                     family=family,

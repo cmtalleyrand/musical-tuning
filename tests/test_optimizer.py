@@ -160,15 +160,33 @@ def test_interval_builder_keeps_ordered_semitones_in_pairs():
     assert pair_14.right_semitone == 14
 
 
-def test_root_to_third_fifth_weight_requires_root_factor():
+def test_interval_class_weights_match_requested_profile():
     chord = ChordDecoder().decode(InputAdapter().parse_lines(["Cmaj7,1,1.0"])[0][0])
     weight_engine = WeightEngine()
 
-    no_root_weight = weight_engine.pair_weight(chord, "3", "5", span=3)
-    with_root_weight = weight_engine.pair_weight(chord, "1", "3", span=4)
+    assert weight_engine.pair_weight(chord, "1", "b5", span=6) == 0.1
+    assert weight_engine.pair_weight(chord, "1", "2", span=2) == 0.15
+    assert weight_engine.pair_weight(chord, "1", "b7", span=10) == 0.15
+    assert weight_engine.pair_weight(chord, "1", "3", span=4) == 0.6
+    assert weight_engine.pair_weight(chord, "3", "5", span=3) == 0.6
+    assert weight_engine.pair_weight(chord, "1", "5", span=7) == 1.0
 
-    assert no_root_weight == 1.0
-    assert with_root_weight == 1.5
+
+def test_root_dissonance_downweights_whole_chord():
+    chord = ChordDecoder().decode(InputAdapter().parse_lines(["C7,1,1.0"])[0][0])
+    intervals = IntervalBuilder().build(chord, WeightEngine())
+
+    assert any(pair.root_dissonant for pair in intervals)
+    assert WeightEngine().chord_multiplier(intervals) == 0.8
+
+
+def test_dominant_seventh_thirds_receive_plus_15_cent_target_adjustment():
+    chord = ChordDecoder().decode(InputAdapter().parse_lines(["C7,1,1.0"])[0][0])
+    intervals = IntervalBuilder().build(chord, WeightEngine())
+    third_spans = [pair for pair in intervals if pair.semitone_span % 12 in {3, 4}]
+
+    assert third_spans
+    assert all(pair.target_adjust_cents == 15.0 for pair in third_spans)
 
 
 def test_build_statistics_reports_best_and_mean_scores():
@@ -195,10 +213,10 @@ def test_optimizer_accepts_weight_overrides():
     ranked_custom, _ = optimizer.optimize_from_lines(
         ["Am7,24,1.0", "D/F#,12,0.7"],
         weights={
-            "root_third_fifth": 2.0,
-            "bass_to_any": 1.2,
-            "root_to_dissonance": 0.8,
-            "compound_interval": 0.9,
+            "tritone": 0.2,
+            "seconds_sevenths": 0.3,
+            "thirds_sixths_fourth": 0.9,
+            "fifth": 1.1,
         },
     )
 
