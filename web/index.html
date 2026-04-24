@@ -54,9 +54,13 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
     .scroll-x { overflow-x: auto; }
     .small { font-size: .85rem; color: var(--muted); }
+    .ranking-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:10px; }
+    .ranking-filter-grid { display:grid; gap:10px; grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top:10px; }
+    .virtual-viewport { height: 360px; overflow-y: auto; border: 1px solid #2d365f; border-radius: 10px; margin-top: 10px; }
     @media (max-width: 980px) {
       .layout, .bench-grid, .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+      .ranking-filter-grid { grid-template-columns: 1fr 1fr; }
     }
   </style>
 </head>
@@ -74,6 +78,7 @@ D/F#,12,0.7
 Gsus4add9,9,0.8
 Cmaj7,18,1.0
 Fadd9,14,0.9</textarea>
+        <div id="invalid-details" style="margin-top:12px;"></div>
         <h3>Pair-weight multipliers</h3>
         <div class="grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
           <label class="label">Root↔(3|5)
@@ -106,10 +111,36 @@ Fadd9,14,0.9</textarea>
     <section class="card" style="margin-top:16px;">
       <h2>Top ranked temperaments</h2>
       <div class="scroll-x">
-        <table>
+        <table id="top-ranking-table">
           <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
+      </div>
+      <div class="ranking-toolbar">
+        <button id="toggle-full-ranking">Expand full ranking</button>
+        <span id="ranking-count" class="small"></span>
+      </div>
+      <div id="full-ranking-panel" style="display:none;">
+        <div class="ranking-filter-grid">
+          <label class="label">Family filter
+            <select id="ranking-family-filter" style="width:100%; margin-top:6px;"></select>
+          </label>
+          <label class="label">Center filter
+            <select id="ranking-center-filter" style="width:100%; margin-top:6px;"></select>
+          </label>
+          <label class="label">Final score min
+            <input id="ranking-final-min" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+          </label>
+          <label class="label">Final score max
+            <input id="ranking-final-max" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+          </label>
+        </div>
+        <div id="ranking-virtual-viewport" class="virtual-viewport">
+          <table>
+            <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
+            <tbody id="full-ranking-rows"></tbody>
+          </table>
+        </div>
       </div>
       <p id="invalid" class="subtitle"></p>
     </section>
@@ -128,6 +159,11 @@ Fadd9,14,0.9</textarea>
         </label>
       </div>
       <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
+      <label class="label" style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
+        <input id="show-decoded-chord-model" type="checkbox" />
+        Show decoded chord model
+      </label>
+      <div id="decoded-chord-model" class="scroll-x" style="display:none; margin-top:8px;"></div>
       <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
         <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
       </label>
@@ -158,29 +194,64 @@ const NOTE_TO_PC = {C:0,'B#':0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,Fb:4,'E#':5,F:5,'
 const BASE_DEGREE_TO_SEMITONE = {1:0,2:2,3:4,4:5,5:7,6:9,7:11,8:12,9:14,10:16,11:17,12:19,13:21};
 const JI_BY_SEMITONE = {0:0.0,1:111.731,2:203.910,3:315.641,4:386.314,5:498.045,6:582.512,7:701.955,8:813.686,9:884.359,10:1017.596,11:1088.269};
 const CENTERS = ['C','C#','D','Eb','E','F','F#','G','Ab','A','Bb','B'];
-const FIFTH_SIZES = {
-  'Pythagorean': 701.955,'1/4-comma meantone': 696.578,'1/5-comma meantone': 697.653,'1/6-comma meantone': 698.370,
-  'Werckmeister I':700.800,'Werckmeister II':700.300,'Werckmeister III':700.100,'Werckmeister IV':699.900,'Werckmeister V':699.600,'Werckmeister VI':699.300,
-  'Kirnberger I':700.900,'Kirnberger II':700.500,'Kirnberger III':700.200,'Vallotti':700.400,'Young II':700.450,'Kellner':700.350,'Neidhardt':700.250,'Rameau':700.150,
-  'Marpurg':700.050,'Sorge':699.950,'Bendeler I':699.850,'Bendeler II':699.750,'Bendeler III':699.650,'Silbermann I':699.550,'Silbermann II':699.450,'Schlick':699.350,
-  'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
+const FIFTH_CHAINS = {
+  'Pythagorean': Array(12).fill(701.955),
+  '1/4-comma meantone': Array(12).fill(696.578),
+  '1/5-comma meantone': Array(12).fill(697.653),
+  '1/6-comma meantone': Array(12).fill(698.370),
+  'Werckmeister I': [701.955,701.955,701.955,701.955,701.955,701.955,698.500,698.500,698.500,698.500,698.500,698.500],
+  'Werckmeister II': [701.955,701.955,701.955,701.955,699.750,699.750,699.750,699.750,699.750,699.750,699.750,699.750],
+  'Werckmeister III': [701.955,701.955,701.955,701.955,700.000,700.000,700.000,700.000,700.000,700.000,700.000,700.000],
+  'Werckmeister IV': [701.955,701.955,701.955,701.955,699.600,699.600,699.600,699.600,699.600,699.600,699.600,699.600],
+  'Werckmeister V': [701.955,701.955,701.955,699.300,699.300,699.300,699.300,699.300,699.300,699.300,699.300,699.300],
+  'Werckmeister VI': [701.955,701.955,701.955,698.900,698.900,698.900,698.900,698.900,698.900,698.900,698.900,698.900],
+  'Kirnberger I': [701.955,701.955,701.955,701.955,701.955,700.200,700.200,700.200,700.200,700.200,700.200,700.200],
+  'Kirnberger II': [701.955,701.955,701.955,701.955,700.000,700.000,700.000,700.000,700.000,700.000,700.000,700.000],
+  'Kirnberger III': [701.955,701.955,701.955,700.600,700.600,700.600,700.600,700.600,700.600,700.600,700.600,700.600],
+  'Vallotti': [701.955,701.955,701.955,701.955,701.955,701.955,698.045,698.045,698.045,698.045,698.045,698.045],
+  'Young II': [701.955,701.955,701.955,701.955,701.300,701.300,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Kellner': [701.955,701.955,701.955,701.955,700.500,700.500,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Neidhardt': [701.955,701.955,701.955,700.900,700.900,700.900,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Rameau': [701.955,701.955,701.955,700.700,700.700,700.700,699.200,699.200,699.200,699.200,699.200,699.200],
+  'Marpurg': [701.955,701.955,701.955,700.500,700.500,700.500,699.300,699.300,699.300,699.300,699.300,699.300],
+  'Sorge': [701.955,701.955,701.955,700.300,700.300,700.300,699.400,699.400,699.400,699.400,699.400,699.400],
+  'Bendeler I': [701.955,701.955,701.200,701.200,700.300,700.300,699.100,699.100,699.100,699.100,699.100,699.100],
+  'Bendeler II': [701.955,701.955,701.000,701.000,700.200,700.200,699.050,699.050,699.050,699.050,699.050,699.050],
+  'Bendeler III': [701.955,701.955,700.900,700.900,700.100,700.100,699.000,699.000,699.000,699.000,699.000,699.000],
+  'Silbermann I': [701.955,701.955,700.700,700.700,700.000,700.000,698.950,698.950,698.950,698.950,698.950,698.950],
+  'Silbermann II': [701.955,701.955,700.600,700.600,699.900,699.900,698.900,698.900,698.900,698.900,698.900,698.900],
+  'Schlick': [701.955,701.955,700.500,700.500,699.700,699.700,698.850,698.850,698.850,698.850,698.850,698.850],
+  'Zarlino': [701.955,701.955,700.300,700.300,699.600,699.600,698.800,698.800,698.800,698.800,698.800,698.800],
+  'Salinas': [701.955,701.955,700.200,700.200,699.500,699.500,698.750,698.750,698.750,698.750,698.750,698.750],
+  '12-TET baseline': Array(12).fill(700.000),
 };
 
-const appState = { ranked: [], invalid: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
+const appState = {
+  ranked: [],
+  invalid: [],
+  invalidDetails: [],
+  chords: [],
+  chordBySymbol: {},
+  intervalMap: {},
+  pitchMaps: {},
+  selectedAnalyses: {},
+  rankingView: { expanded: false, filtered: [], startIndex: 0, visibleCount: 0, scrollTop: 0, rowHeight: 38 },
+};
 
 function parsePipeRow(raw, tableLayout) {
-  if (!raw.includes('|')) return null;
+  if (!raw.includes('|')) return {matched: false};
   const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
-  if (cells.length < 2 || cells.every(cell => cell === '')) return null;
+  if (cells.length < 2 || cells.every(cell => cell === '')) return {matched: true, reason: 'unknown_format'};
   const layout = tableLayout || [0, 1, cells.length > 2 ? 2 : null];
   const [symbolIdx, frequencyIdx, weightIdx] = layout;
-  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return null;
+  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return {matched: true, reason: 'unknown_format'};
+  if (!cells[symbolIdx]) return {matched: true, reason: 'bad_symbol'};
   const frequency = Number.parseInt(cells[frequencyIdx], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weightText = weightIdx !== null && weightIdx < cells.length ? cells[weightIdx] : '';
   const weight = weightText === '' ? 1.0 : Number(weightText);
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: cells[symbolIdx], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: cells[symbolIdx], frequency, weight } };
 }
 
 function readPipeHeaderLayout(raw) {
@@ -200,30 +271,59 @@ function isPipeSeparatorLine(raw) {
 function parseGenericTriplet(raw) {
   const normalized = raw.replace(/[\[\]\(\)"']/g, ' ').trim();
   const parts = normalized.split(/[,\t; ]+/).filter(Boolean);
-  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.length < 2 || parts.length > 3) return {matched: false};
   const frequency = Number.parseInt(parts[1], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weight = parts.length === 3 ? Number(parts[2]) : 1.0;
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: parts[0], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: parts[0], frequency, weight } };
 }
 
 function parseLine(raw, tableLayout) {
   const pipe = parsePipeRow(raw, tableLayout);
-  if (pipe) return pipe;
-  const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$/);
-  if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: csv[3] && csv[3].trim() ? Number(csv[3]) : 1.0};
-  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?/);
-  if (kv) return {symbol: kv[1].trim(), frequency: Number(kv[2]), weight: kv[3] && kv[3].trim() ? Number(kv[3]) : 1.0};
+  if (pipe.matched) return pipe.parsed ? {ok: true, parsed: pipe.parsed} : {ok: false, reason: pipe.reason};
+  if (raw.includes(',') && !raw.includes('|')) {
+    const parts = raw.split(',').map(token => token.trim());
+    if (parts.length >= 2 && parts.length <= 3) {
+      if (!parts[0]) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number.parseInt(parts[1], 10);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = parts.length === 3 && parts[2] !== '' ? Number(parts[2]) : 1.0;
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol: parts[0], frequency, weight}};
+    }
+  }
+  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*([^\s]+)(?:\s+weight\s*=\s*([^\s]+))?/i);
+  if (kv) {
+    const frequency = Number.parseInt(kv[2], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = kv[3] === undefined || kv[3] === '' ? 1.0 : Number(kv[3]);
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: kv[1].trim(), frequency, weight}};
+  }
   if (raw.trim().startsWith('{')) {
     try {
       const data = JSON.parse(raw);
-      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight: data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight)};
-    } catch (_err) { return null; }
+      const symbol = String(data.symbol ?? '').trim();
+      if (!symbol) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number(data.frequency);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight);
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol, frequency, weight}};
+    } catch (_err) { return {ok: false, reason: 'invalid_json'}; }
   }
-  const x = raw.match(/^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$/);
-  if (x) return {symbol: x[2].trim(), frequency: Number(x[1]), weight: x[3] && x[3].trim() ? Number(x[3]) : 1.0};
-  return parseGenericTriplet(raw);
+  const x = raw.match(/^\s*(\S+)x\s+([^@]+?)(?:\s*@\s*(\S+))?\s*$/);
+  if (x) {
+    const frequency = Number.parseInt(x[1], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = x[3] && x[3].trim() ? Number(x[3]) : 1.0;
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: x[2].trim(), frequency, weight}};
+  }
+  const generic = parseGenericTriplet(raw);
+  if (generic.matched) return generic.parsed ? {ok: true, parsed: generic.parsed} : {ok: false, reason: generic.reason};
+  return {ok: false, reason: 'unknown_format'};
 }
 
 function decodeFactors(body) {
@@ -295,17 +395,18 @@ function buildIntervals(chord, weights) {
   return out;
 }
 
-function buildPitchMap(fifthSize) {
+function buildPitchMapFromFifths(fifthChain) {
   const values = Array(12).fill(0.0);
   let pc = 0;
   let cur = 0.0;
-  for (let i = 0; i < 12; i++) {
+  const meanAdjust = fifthChain.reduce((acc, v) => acc + v, 0.0) / fifthChain.length - 700.0;
+  for (let i = 0; i < fifthChain.length; i++) {
     values[pc] = cur;
     pc = (pc + 7) % 12;
-    cur = (cur + fifthSize) % 1200.0;
+    cur = (cur + fifthChain[i] - meanAdjust) % 1200.0;
   }
   const min = Math.min(...values);
-  return values.map(v => ((v - min) % 1200.0 + 1200.0) % 1200.0).sort((a, b) => a - b);
+  return values.map(v => ((v - min) % 1200.0 + 1200.0) % 1200.0);
 }
 
 function targetCents(semitoneSpan) {
@@ -391,8 +492,9 @@ function optimize(lines) {
 function optimizeWithWeights(lines, weights) {
   const parsed = [];
   const invalid = [];
+  const invalidDetails = [];
   let tableLayout = null;
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
     const raw = String(line).trim();
     if (!raw) { tableLayout = null; continue; }
     if (raw === '.' || raw === '…') continue;
@@ -401,15 +503,19 @@ function optimizeWithWeights(lines, weights) {
     if (isPipeSeparatorLine(raw)) continue;
     if (!raw.includes('|')) tableLayout = null;
     const one = parseLine(raw, tableLayout);
-    if (one) parsed.push(one); else invalid.push(raw);
+    if (one.ok) parsed.push(one.parsed);
+    else {
+      invalid.push(raw);
+      invalidDetails.push({lineIndex, lineNumber: lineIndex + 1, raw, reason: one.reason || 'unknown_format'});
+    }
   }
 
   const chords = parsed.map(decodeChord).filter(Boolean);
   const intervalMap = Object.fromEntries(chords.map(chord => [chord.symbol, buildIntervals(chord, weights)]));
   const pitchMaps = {};
   const records = [];
-  for (const [family, fifthSize] of Object.entries(FIFTH_SIZES)) {
-    const base = buildPitchMap(fifthSize);
+  for (const [family, fifthChain] of Object.entries(FIFTH_CHAINS)) {
+    const base = buildPitchMapFromFifths(fifthChain);
     for (let centerIndex = 0; centerIndex < CENTERS.length; centerIndex++) {
       const center = CENTERS[centerIndex];
       const shifted = Array.from({length: 12}, (_, pc) => base[((pc - centerIndex) % 12 + 12) % 12]);
@@ -420,7 +526,7 @@ function optimizeWithWeights(lines, weights) {
   }
 
   records.sort((a, b) => a.final_score_cents - b.final_score_cents || a.wrmse_cents - b.wrmse_cents || a.wmae_cents - b.wmae_cents || a.family.localeCompare(b.family) || a.center.localeCompare(b.center));
-  return {ranked: records, invalid, chords, intervalMap, pitchMaps};
+  return {ranked: records, invalid, invalidDetails, chords, intervalMap, pitchMaps};
 }
 
 function buildStats(ranked, invalid, inputLines) {
@@ -439,6 +545,98 @@ function renderStats(stats) {
 
 function renderTable(ranked) {
   document.getElementById('rows').innerHTML = ranked.slice(0, 15).map((r, idx) => `<tr><td>${idx + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`).join('');
+}
+
+function renderExpandedRankingRows() {
+  const tbody = document.getElementById('full-ranking-rows');
+  const viewport = document.getElementById('ranking-virtual-viewport');
+  const rows = appState.rankingView.filtered;
+  const total = rows.length;
+  if (!total) {
+    tbody.innerHTML = '<tr><td colspan="6" class="small">No candidates match the current filters.</td></tr>';
+    document.getElementById('ranking-count').textContent = 'Filtered candidates: 0';
+    return;
+  }
+
+  const viewportHeight = viewport.clientHeight || 360;
+  const overscan = 4;
+  const visible = Math.ceil(viewportHeight / appState.rankingView.rowHeight) + overscan * 2;
+  appState.rankingView.visibleCount = visible;
+  const maxStart = Math.max(total - visible, 0);
+  appState.rankingView.startIndex = Math.min(Math.max(Math.floor(appState.rankingView.scrollTop / appState.rankingView.rowHeight) - overscan, 0), maxStart);
+  const endIndex = Math.min(appState.rankingView.startIndex + visible, total);
+  const topPad = appState.rankingView.startIndex * appState.rankingView.rowHeight;
+  const bottomPad = (total - endIndex) * appState.rankingView.rowHeight;
+
+  const sliceRows = rows.slice(appState.rankingView.startIndex, endIndex)
+    .map((r, idx) => {
+      const absoluteIndex = appState.rankingView.startIndex + idx;
+      return `<tr><td>${absoluteIndex + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`;
+    }).join('');
+
+  const topSpacer = topPad > 0 ? `<tr><td colspan="6" style="height:${topPad}px; padding:0; border-bottom:none;"></td></tr>` : '';
+  const bottomSpacer = bottomPad > 0 ? `<tr><td colspan="6" style="height:${bottomPad}px; padding:0; border-bottom:none;"></td></tr>` : '';
+  tbody.innerHTML = `${topSpacer}${sliceRows}${bottomSpacer}`;
+  document.getElementById('ranking-count').textContent = `Filtered candidates: ${total} / ${appState.ranked.length}`;
+}
+
+function applyRankingFilters(resetScroll = true) {
+  const family = document.getElementById('ranking-family-filter').value;
+  const center = document.getElementById('ranking-center-filter').value;
+  const minText = document.getElementById('ranking-final-min').value;
+  const maxText = document.getElementById('ranking-final-max').value;
+  const min = minText === '' ? -Infinity : Number(minText);
+  const max = maxText === '' ? Infinity : Number(maxText);
+
+  appState.rankingView.filtered = appState.ranked.filter(row => {
+    if (family !== 'ALL' && row.family !== family) return false;
+    if (center !== 'ALL' && row.center !== center) return false;
+    return row.final_score_cents >= min && row.final_score_cents <= max;
+  });
+
+  if (resetScroll) {
+    appState.rankingView.scrollTop = 0;
+    appState.rankingView.startIndex = 0;
+    document.getElementById('ranking-virtual-viewport').scrollTop = 0;
+  }
+  renderExpandedRankingRows();
+}
+
+function initializeRankingPanel() {
+  const familyFilter = document.getElementById('ranking-family-filter');
+  const centerFilter = document.getElementById('ranking-center-filter');
+  const toggleButton = document.getElementById('toggle-full-ranking');
+  const panel = document.getElementById('full-ranking-panel');
+  const viewport = document.getElementById('ranking-virtual-viewport');
+
+  const families = Array.from(new Set(appState.ranked.map(row => row.family)));
+  familyFilter.innerHTML = ['<option value="ALL">All families</option>', ...families.map(name => `<option value="${name}">${name}</option>`)].join('');
+  centerFilter.innerHTML = ['<option value="ALL">All centers</option>', ...CENTERS.map(center => `<option value="${center}">${center}</option>`)].join('');
+  document.getElementById('ranking-final-min').value = '';
+  document.getElementById('ranking-final-max').value = '';
+
+  panel.style.display = appState.rankingView.expanded ? 'block' : 'none';
+  toggleButton.textContent = appState.rankingView.expanded ? 'Collapse full ranking' : 'Expand full ranking';
+
+  if (!toggleButton.dataset.bound) {
+    toggleButton.addEventListener('click', () => {
+      appState.rankingView.expanded = !appState.rankingView.expanded;
+      panel.style.display = appState.rankingView.expanded ? 'block' : 'none';
+      toggleButton.textContent = appState.rankingView.expanded ? 'Collapse full ranking' : 'Expand full ranking';
+      if (appState.rankingView.expanded) renderExpandedRankingRows();
+    });
+    for (const id of ['ranking-family-filter', 'ranking-center-filter', 'ranking-final-min', 'ranking-final-max']) {
+      document.getElementById(id).addEventListener('input', () => applyRankingFilters(true));
+      document.getElementById(id).addEventListener('change', () => applyRankingFilters(true));
+    }
+    viewport.addEventListener('scroll', () => {
+      appState.rankingView.scrollTop = viewport.scrollTop;
+      renderExpandedRankingRows();
+    });
+    toggleButton.dataset.bound = '1';
+  }
+
+  applyRankingFilters(true);
 }
 
 function renderContributors(best) {
@@ -466,6 +664,30 @@ function renderClosestFurthest(rows, elemId, reverse=false) {
   document.getElementById(elemId).innerHTML = `<table><thead><tr><th>Chord</th><th>Weighted MAE (cents)</th></tr></thead><tbody>${sorted.map(row => `<tr><td>${row.symbol}</td><td>${row.weightedMae.toFixed(3)}</td></tr>`).join('')}</tbody></table>`;
 }
 
+function renderDecodedChord(selectedSymbol) {
+  const showDecoded = document.getElementById('show-decoded-chord-model').checked;
+  const host = document.getElementById('decoded-chord-model');
+  if (!showDecoded) {
+    host.style.display = 'none';
+    host.innerHTML = '';
+    return;
+  }
+  const chord = appState.chordBySymbol[selectedSymbol];
+  if (!chord) {
+    host.style.display = 'block';
+    host.innerHTML = '<p class="small">No decoded chord model is available for this selection.</p>';
+    return;
+  }
+  host.style.display = 'block';
+  host.innerHTML = `<table><tbody>
+    <tr><th>symbol</th><td class="mono">${chord.symbol}</td></tr>
+    <tr><th>root pitch class</th><td>${chord.rootPc}</td></tr>
+    <tr><th>bass pitch class</th><td>${chord.bassPc}</td></tr>
+    <tr><th>factors</th><td class="mono">${chord.factors.join(', ')}</td></tr>
+    <tr><th>factor semitones</th><td class="mono">${chord.factorSemitones.join(', ')}</td></tr>
+  </tbody></table>`;
+}
+
 function ensureAnalysis(family, center) {
   const key = `${family}__${center}`;
   if (!appState.selectedAnalyses[key]) {
@@ -487,11 +709,13 @@ function quantileFromSorted(sortedValues, quantile) {
 function renderCandidateDiagnostics() {
   if (!appState.ranked.length || !appState.chords.length) {
     document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
+    renderDecodedChord(document.getElementById('selected-chord').value);
     return;
   }
   const family = document.getElementById('selected-family').value;
   const center = document.getElementById('selected-center').value;
   const chord = document.getElementById('selected-chord').value;
+  renderDecodedChord(chord);
   const selectedRecord = appState.ranked.find(r => r.family === family && r.center === center);
   const baselineRecord = appState.ranked.find(r => r.family === '12-TET baseline' && r.center === center);
   const selectedAnalysis = ensureAnalysis(family, center);
@@ -568,7 +792,7 @@ function initializeSelectors() {
   const chordEl = document.getElementById('selected-chord');
   const comparisonEl = document.getElementById('selected-comparisons');
 
-  familyEl.innerHTML = Object.keys(FIFTH_SIZES).map(name => `<option value="${name}">${name}</option>`).join('');
+  familyEl.innerHTML = Object.keys(FIFTH_CHAINS).map(name => `<option value="${name}">${name}</option>`).join('');
   centerEl.innerHTML = CENTERS.map(center => `<option value="${center}">${center}</option>`).join('');
   chordEl.innerHTML = appState.chords.map(chord => `<option value="${chord.symbol}">${chord.symbol}</option>`).join('');
   comparisonEl.innerHTML = appState.ranked.map(r => `<option value="${r.family}__${r.center}">${r.family} · ${r.center}</option>`).join('');
@@ -580,7 +804,7 @@ function initializeSelectors() {
     for (const option of comparisonEl.options) option.selected = defaultSelections.includes(option.value);
   }
 
-  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons']) {
+  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons', 'show-decoded-chord-model']) {
     document.getElementById(id).addEventListener('change', () => {
       if (id === 'selected-comparisons') {
         const selected = Array.from(comparisonEl.selectedOptions);
@@ -606,7 +830,9 @@ document.getElementById('run').addEventListener('click', () => {
   const result = optimizeWithWeights(lines, weights);
   appState.ranked = result.ranked;
   appState.invalid = result.invalid;
+  appState.invalidDetails = result.invalidDetails;
   appState.chords = result.chords;
+  appState.chordBySymbol = Object.fromEntries(result.chords.map(chord => [chord.symbol, chord]));
   appState.intervalMap = result.intervalMap;
   appState.pitchMaps = result.pitchMaps;
   appState.selectedAnalyses = {};
@@ -614,8 +840,10 @@ document.getElementById('run').addEventListener('click', () => {
   const stats = buildStats(result.ranked, result.invalid, lines.length);
   renderStats(stats);
   renderTable(result.ranked);
+  initializeRankingPanel();
+  renderInvalidDetails(result.invalidDetails);
   renderContributors(result.ranked[0]);
-  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines (${result.invalid.length}): ${result.invalid.join(' | ')}` : 'No invalid lines.';
+  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines: ${result.invalid.length}.` : 'Invalid lines: 0.';
   initializeSelectors();
   renderCandidateDiagnostics();
 

@@ -73,6 +73,8 @@ class IntervalPair:
     right_semitone: int
     semitone_span: int
     weight: float
+    target_adjust_cents: float
+    root_dissonant: bool
 
 
 @dataclass(frozen=True)
@@ -314,6 +316,8 @@ class IntervalBuilder:
                         right_semitone=semitones[j],
                         semitone_span=span,
                         weight=weight_engine.pair_weight(chord, factors[i], factors[j], span),
+                        target_adjust_cents=weight_engine.target_adjust_cents(chord, factors[i], factors[j], span),
+                        root_dissonant=weight_engine.is_root_dissonance(factors[i], factors[j], span),
                     )
                 )
         return tuple(out)
@@ -322,93 +326,113 @@ class IntervalBuilder:
 class WeightEngine:
     def __init__(
         self,
-        root_third_fifth: float = 1.5,
-        bass_to_any: float = 1.5,
-        root_to_dissonance: float = 0.5,
-        compound_interval: float = 0.75,
+        tritone: float = 0.1,
+        seconds_sevenths: float = 0.15,
+        thirds_sixths: float = 0.6,
+        fourth_fifth: float = 1.0,
+        root_dissonant_chord_multiplier: float = 0.8,
+        dominant_seventh_third_adjust_cents: float = 15.0,
     ) -> None:
-        self.root_third_fifth = root_third_fifth
-        self.bass_to_any = bass_to_any
-        self.root_to_dissonance = root_to_dissonance
-        self.compound_interval = compound_interval
+        self.tritone = tritone
+        self.seconds_sevenths = seconds_sevenths
+        self.thirds_sixths = thirds_sixths
+        self.fourth_fifth = fourth_fifth
+        self.root_dissonant_chord_multiplier = root_dissonant_chord_multiplier
+        self.dominant_seventh_third_adjust_cents = dominant_seventh_third_adjust_cents
 
     def pair_weight(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
-        weight = 1.0
+        span_class = span % 12
+
+        if span_class == 6:
+            return self.tritone
+        if span_class in {1, 2, 10, 11}:
+            return self.seconds_sevenths
+        if span_class in {3, 4, 8, 9}:
+            return self.thirds_sixths
+        if span_class in {5, 7}:
+            return self.fourth_fifth
+        return self.fourth_fifth
+
+    def is_root_dissonance(self, left_factor: str, right_factor: str, span: int) -> bool:
         lf = left_factor.lstrip("b#")
         rf = right_factor.lstrip("b#")
+        if "1" not in {lf, rf}:
+            return False
 
-        if ("1" in {lf, rf}) and (lf in {"3", "5"} or rf in {"3", "5"}):
-            weight *= self.root_third_fifth
+        span_class = span % 12
+        return span_class in {1, 2, 6, 10, 11}
 
-        if chord.bass_pc != chord.root_pc:
-            weight *= self.bass_to_any
+    def target_adjust_cents(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
+        lf = left_factor.lstrip("b#")
+        rf = right_factor.lstrip("b#")
+        is_dominant_seventh = "3" in chord.factors and "b7" in chord.factors and "7" not in chord.factors
+        if is_dominant_seventh and span % 12 in {3, 4} and {lf, rf} != {"1", "5"}:
+            return self.dominant_seventh_third_adjust_cents
+        return 0.0
 
-        if {lf, rf} & {"1"} and ((lf in {"2", "7"} or rf in {"2", "7"}) or span % 12 == 6):
-            weight *= self.root_to_dissonance
-
-        if span >= 12:
-            weight *= self.compound_interval
-
-        return weight
+    def chord_multiplier(self, intervals: tuple[IntervalPair, ...]) -> float:
+        if any(pair.root_dissonant for pair in intervals):
+            return self.root_dissonant_chord_multiplier
+        return 1.0
 
 
 class TemperamentRegistry:
     _CENTERS = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
-    _FIFTH_SIZES = {
-        "Pythagorean": 701.955,
-        "1/4-comma meantone": 696.578,
-        "1/5-comma meantone": 697.653,
-        "1/6-comma meantone": 698.370,
-        "Werckmeister I": 700.800,
-        "Werckmeister II": 700.300,
-        "Werckmeister III": 700.100,
-        "Werckmeister IV": 699.900,
-        "Werckmeister V": 699.600,
-        "Werckmeister VI": 699.300,
-        "Kirnberger I": 700.900,
-        "Kirnberger II": 700.500,
-        "Kirnberger III": 700.200,
-        "Vallotti": 700.400,
-        "Young II": 700.450,
-        "Kellner": 700.350,
-        "Neidhardt": 700.250,
-        "Rameau": 700.150,
-        "Marpurg": 700.050,
-        "Sorge": 699.950,
-        "Bendeler I": 699.850,
-        "Bendeler II": 699.750,
-        "Bendeler III": 699.650,
-        "Silbermann I": 699.550,
-        "Silbermann II": 699.450,
-        "Schlick": 699.350,
-        "Zarlino": 699.250,
-        "Salinas": 699.150,
-        "12-TET baseline": 700.000,
+    _FIFTH_CHAINS = {
+        "Pythagorean": (701.955,) * 12,
+        "1/4-comma meantone": (696.578,) * 12,
+        "1/5-comma meantone": (697.653,) * 12,
+        "1/6-comma meantone": (698.370,) * 12,
+        "Werckmeister I": (701.955, 701.955, 701.955, 701.955, 701.955, 701.955, 698.500, 698.500, 698.500, 698.500, 698.500, 698.500),
+        "Werckmeister II": (701.955, 701.955, 701.955, 701.955, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750),
+        "Werckmeister III": (701.955, 701.955, 701.955, 701.955, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000),
+        "Werckmeister IV": (701.955, 701.955, 701.955, 701.955, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600),
+        "Werckmeister V": (701.955, 701.955, 701.955, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300),
+        "Werckmeister VI": (701.955, 701.955, 701.955, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900),
+        "Kirnberger I": (701.955, 701.955, 701.955, 701.955, 701.955, 700.200, 700.200, 700.200, 700.200, 700.200, 700.200, 700.200),
+        "Kirnberger II": (701.955, 701.955, 701.955, 701.955, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000),
+        "Kirnberger III": (701.955, 701.955, 701.955, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600),
+        "Vallotti": (701.955, 701.955, 701.955, 701.955, 701.955, 701.955, 698.045, 698.045, 698.045, 698.045, 698.045, 698.045),
+        "Young II": (701.955, 701.955, 701.955, 701.955, 701.300, 701.300, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Kellner": (701.955, 701.955, 701.955, 701.955, 700.500, 700.500, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Neidhardt": (701.955, 701.955, 701.955, 700.900, 700.900, 700.900, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Rameau": (701.955, 701.955, 701.955, 700.700, 700.700, 700.700, 699.200, 699.200, 699.200, 699.200, 699.200, 699.200),
+        "Marpurg": (701.955, 701.955, 701.955, 700.500, 700.500, 700.500, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300),
+        "Sorge": (701.955, 701.955, 701.955, 700.300, 700.300, 700.300, 699.400, 699.400, 699.400, 699.400, 699.400, 699.400),
+        "Bendeler I": (701.955, 701.955, 701.200, 701.200, 700.300, 700.300, 699.100, 699.100, 699.100, 699.100, 699.100, 699.100),
+        "Bendeler II": (701.955, 701.955, 701.000, 701.000, 700.200, 700.200, 699.050, 699.050, 699.050, 699.050, 699.050, 699.050),
+        "Bendeler III": (701.955, 701.955, 700.900, 700.900, 700.100, 700.100, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Silbermann I": (701.955, 701.955, 700.700, 700.700, 700.000, 700.000, 698.950, 698.950, 698.950, 698.950, 698.950, 698.950),
+        "Silbermann II": (701.955, 701.955, 700.600, 700.600, 699.900, 699.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900),
+        "Schlick": (701.955, 701.955, 700.500, 700.500, 699.700, 699.700, 698.850, 698.850, 698.850, 698.850, 698.850, 698.850),
+        "Zarlino": (701.955, 701.955, 700.300, 700.300, 699.600, 699.600, 698.800, 698.800, 698.800, 698.800, 698.800, 698.800),
+        "Salinas": (701.955, 701.955, 700.200, 700.200, 699.500, 699.500, 698.750, 698.750, 698.750, 698.750, 698.750, 698.750),
+        "12-TET baseline": (700.000,) * 12,
     }
 
     def candidates(self) -> list[tuple[str, str, tuple[float, ...]]]:
         out: list[tuple[str, str, tuple[float, ...]]] = []
-        for family, fifth_size in self._FIFTH_SIZES.items():
-            base_map = self._build_map_from_fifth(fifth_size)
+        for family, fifth_chain in self._FIFTH_CHAINS.items():
+            base_map = self._build_map_from_fifths(fifth_chain)
             for center_index, center in enumerate(self._CENTERS):
                 shifted = tuple(base_map[(pc - center_index) % 12] for pc in range(12))
                 out.append((family, center, shifted))
         return out
 
-    def _build_map_from_fifth(self, fifth_size: float) -> tuple[float, ...]:
+    def _build_map_from_fifths(self, fifth_chain: tuple[float, ...]) -> tuple[float, ...]:
         values = [0.0] * 12
         pc = 0
         cur = 0.0
-        for _ in range(12):
+        mean_adjust = sum(fifth_chain) / len(fifth_chain) - 700.0
+        for fifth_size in fifth_chain:
             values[pc] = cur
             pc = (pc + 7) % 12
-            cur += fifth_size
+            cur += fifth_size - mean_adjust
             while cur >= 1200.0:
                 cur -= 1200.0
 
         minimum = min(values)
-        normalized = sorted(((v - minimum) % 1200.0 for v in values))
-        return tuple(normalized)
+        return tuple(((v - minimum) % 1200.0 for v in values))
 
 
 class JIReference:
@@ -426,6 +450,7 @@ class ScoringEngine:
         chords: Iterable[CanonicalChord],
         interval_map: dict[str, tuple[IntervalPair, ...]],
         pitch_map: tuple[float, ...],
+        weight_engine: WeightEngine,
     ) -> tuple[float, float, float, list[tuple[str, float]], list[tuple[str, float]]]:
         weighted_mae_sum = 0.0
         weighted_mse_sum = 0.0
@@ -450,7 +475,7 @@ class ScoringEngine:
                 if pair.semitone_span >= 12:
                     temp_cents += 1200.0 * (pair.semitone_span // 12)
 
-                ji = self.ji_reference.target_cents(pair.semitone_span)
+                ji = self.ji_reference.target_cents(pair.semitone_span) + pair.target_adjust_cents
                 err = abs(temp_cents - ji)
                 w = pair.weight
 
@@ -461,7 +486,7 @@ class ScoringEngine:
 
             chord_mae = abs_sum / pair_weight_sum
             chord_mse = sq_sum / pair_weight_sum
-            cw = chord.frequency * chord.weight
+            cw = chord.frequency * chord.weight * weight_engine.chord_multiplier(intervals)
             weighted_mae_sum += cw * chord_mae
             weighted_mse_sum += cw * chord_mse
             total_chord_weight += cw
@@ -521,17 +546,30 @@ class MusicalTuningOptimizer:
             self.weight_engine
             if weights is None
             else WeightEngine(
-                root_third_fifth=weights.get("root_third_fifth", self.weight_engine.root_third_fifth),
-                bass_to_any=weights.get("bass_to_any", self.weight_engine.bass_to_any),
-                root_to_dissonance=weights.get("root_to_dissonance", self.weight_engine.root_to_dissonance),
-                compound_interval=weights.get("compound_interval", self.weight_engine.compound_interval),
+                tritone=weights.get("tritone", self.weight_engine.tritone),
+                seconds_sevenths=weights.get("seconds_sevenths", self.weight_engine.seconds_sevenths),
+                thirds_sixths=weights.get("thirds_sixths", self.weight_engine.thirds_sixths),
+                fourth_fifth=weights.get("fourth_fifth", self.weight_engine.fourth_fifth),
+                root_dissonant_chord_multiplier=weights.get(
+                    "root_dissonant_chord_multiplier",
+                    self.weight_engine.root_dissonant_chord_multiplier,
+                ),
+                dominant_seventh_third_adjust_cents=weights.get(
+                    "dominant_seventh_third_adjust_cents",
+                    self.weight_engine.dominant_seventh_third_adjust_cents,
+                ),
             )
         )
         interval_map = {c.symbol: self.interval_builder.build(c, weight_engine) for c in chords}
 
         records: list[RankedRecord] = []
         for family, center, pitch_map in self.registry.candidates():
-            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(chords, interval_map, pitch_map)
+            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(
+                chords,
+                interval_map,
+                pitch_map,
+                weight_engine,
+            )
             records.append(
                 RankedRecord(
                     family=family,

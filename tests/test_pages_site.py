@@ -137,7 +137,7 @@ def test_pages_analysis_reacts_to_chord_weight_changes():
     subprocess.run(["node", "-e", node_script], check=True)
 
 
-def test_interval_breakdown_uses_quantile_error_bands_for_current_view():
+def test_pages_decoded_chord_model_is_progressively_disclosed_and_symbol_indexed():
     node_script = textwrap.dedent(
         """
         const fs = require('node:fs');
@@ -146,16 +146,25 @@ def test_interval_breakdown_uses_quantile_error_bands_for_current_view():
         const html = fs.readFileSync('web/index.html', 'utf8');
         const script = html.match(/<script>([\\s\\S]*)<\\/script>/)[1];
 
-        const elements = {};
-        const ensure = (id) => {
-          if (!elements[id]) {
-            elements[id] = { addEventListener: () => {}, value: '', textContent: '', className: '', innerHTML: '', selectedOptions: [], options: [] };
-          }
-          return elements[id];
-        };
-
+        const elements = new Map();
+        const ids = ['run', 'show-decoded-chord-model', 'decoded-chord-model', 'selected-chord'];
+        for (const id of ids) {
+          elements.set(id, {
+            id,
+            addEventListener: () => {},
+            value: '',
+            textContent: '',
+            className: '',
+            innerHTML: '',
+            checked: false,
+            style: {},
+            selectedOptions: [],
+            options: [],
+          });
+        }
+        const fallback = { addEventListener: () => {}, value: '', textContent: '', className: '', innerHTML: '', checked: false, style: {}, selectedOptions: [], options: [] };
         const context = {
-          document: { getElementById: ensure },
+          document: { getElementById: (id) => elements.get(id) || fallback },
           console,
           Math,
           Number,
@@ -168,33 +177,27 @@ def test_interval_breakdown_uses_quantile_error_bands_for_current_view():
         vm.createContext(context);
         vm.runInContext(script, context);
 
-        vm.runInContext(`
-          const optimized = optimize(['Cmaj7,3,1.0', 'G7,2,1.0', 'Am7,1,1.0']);
-          appState.ranked = optimized.ranked;
-          appState.invalid = optimized.invalid;
-          appState.chords = optimized.chords;
-          appState.intervalMap = optimized.intervalMap;
-          appState.pitchMaps = optimized.pitchMaps;
-          appState.selectedAnalyses = {};
+        const out = context.optimize(['Cmaj7,2,1.0', 'D/F#,1,1.0']);
+        context.__chords = out.chords;
+        vm.runInContext(
+          'appState.chords = __chords; appState.chordBySymbol = Object.fromEntries(__chords.map(chord => [chord.symbol, chord]));',
+          context
+        );
 
-          const center = optimized.ranked[0].center;
-          const best = optimized.ranked[0];
-          document.getElementById('selected-family').value = best.family;
-          document.getElementById('selected-center').value = center;
-          document.getElementById('selected-chord').value = optimized.chords[0].symbol;
-          document.getElementById('selected-comparisons').selectedOptions = [
-            { value: best.family + '__' + center },
-            { value: '12-TET baseline__' + center },
-          ];
-          renderCandidateDiagnostics();
-          globalThis.__intervalBreakdownHtml = document.getElementById('interval-breakdown').innerHTML;
-        `, context);
+        const toggle = elements.get('show-decoded-chord-model');
+        const host = elements.get('decoded-chord-model');
 
-        const out = context.__intervalBreakdownHtml;
-        if (!out.includes('Relative error bands (current view): low/mid/high')) throw new Error('missing legend');
-        if (!out.includes('error-low')) throw new Error('missing low band');
-        if (!out.includes('error-mid')) throw new Error('missing mid band');
-        if (!out.includes('error-high')) throw new Error('missing high band');
+        toggle.checked = false;
+        context.renderDecodedChord('Cmaj7');
+        if (host.style.display !== 'none') throw new Error(`expected hidden, got ${host.style.display}`);
+        if (host.innerHTML !== '') throw new Error('expected empty host when hidden');
+
+        toggle.checked = true;
+        context.renderDecodedChord('D/F#');
+        if (host.style.display !== 'block') throw new Error(`expected shown, got ${host.style.display}`);
+        if (!host.innerHTML.includes('<th>symbol</th><td class="mono">D/F#</td>')) throw new Error('missing selected symbol row');
+        if (!host.innerHTML.includes('root pitch class')) throw new Error('missing root pitch class');
+        if (!host.innerHTML.includes('factor semitones')) throw new Error('missing factor semitones');
       """
     )
     subprocess.run(["node", "-e", node_script], check=True)
