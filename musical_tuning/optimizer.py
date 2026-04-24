@@ -87,10 +87,10 @@ class RankedRecord:
 
 
 class InputAdapter:
-    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$")
-    _pipe_re = re.compile(r"^\s*\|?\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)?\s*\|?\s*$")
-    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)")
-    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$")
+    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$")
+    _pipe_re = re.compile(r"^\s*\|?\s*([^|]+?)\s*\|\s*(\d+)\s*(?:\|\s*([0-9]*\.?[0-9]+)?\s*)?\|?\s*$")
+    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?")
+    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$")
     _md_header_re = re.compile(r"^\s*\|?\s*chord\s*\|\s*frequency\s*\|\s*weight\s*\|?\s*$", re.IGNORECASE)
     _md_separator_re = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|?\s*$")
 
@@ -121,13 +121,16 @@ class InputAdapter:
         if raw.startswith("{"):
             try:
                 data = json.loads(raw)
-                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=float(data["weight"]))
+                weight = 1.0 if "weight" not in data or data["weight"] in (None, "") else float(data["weight"])
+                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=weight)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 return None
 
         m = self._x_re.search(raw)
         if m:
-            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=float(m.group(3)))
+            weight_str = m.group(3)
+            weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=weight)
         return None
 
 
