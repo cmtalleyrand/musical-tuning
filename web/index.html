@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Musical Tuning Optimizer</title>
+  <style>
+    body { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
+    textarea { width: 100%; min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    button { margin-top: 0.75rem; padding: 0.5rem 0.9rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #d0d0d0; padding: 0.4rem; text-align: left; font-size: 0.95rem; }
+    .row { margin-top: 1rem; }
+    #status { margin-top: 0.75rem; font-weight: 600; }
+    #invalid { white-space: pre-wrap; background: #fff7f7; border: 1px solid #f0cccc; padding: 0.5rem; }
+    .panel { border: 1px solid #d0d0d0; padding: 0.75rem; border-radius: 6px; }
+    .panel h3 { margin: 0.2rem 0 0.5rem; }
+    .panel ul { margin: 0.35rem 0 0 1.2rem; }
+  </style>
+</head>
+<body>
+  <h1>Musical Tuning Optimizer</h1>
+  <p>Paste chord-chart lines, click <strong>Optimize</strong>, and the app computes candidate tunings in-browser (Pyodide + WebAssembly).</p>
+  <textarea id="input">Am7,24,1.0
+D/F#,12,0.7
+Gsus4add9,9,0.8</textarea>
+  <div>
+    <button id="run">Optimize</button>
+  </div>
+  <div id="status">Loading Python runtime...</div>
+
+  <div class="row">
+    <h2>Top candidates</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Rank</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th>
+        </tr>
+      </thead>
+      <tbody id="results"></tbody>
+    </table>
+  </div>
+
+  <div class="row panel">
+    <h2>Best candidate diagnostics</h2>
+    <div id="best-summary">Run optimization to populate details.</div>
+    <h3>Top chord contributors (weighted cent-error)</h3>
+    <ul id="best-chords"><li>None</li></ul>
+    <h3>Top interval contributors (weighted cent-error)</h3>
+    <ul id="best-intervals"><li>None</li></ul>
+  </div>
+
+  <div class="row">
+    <h2>Invalid lines</h2>
+    <div id="invalid">None</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
