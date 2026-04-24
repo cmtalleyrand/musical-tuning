@@ -81,10 +81,12 @@ class _Handler(BaseHTTPRequestHandler):
         lines = [str(line) for line in data.get("lines", [])]
         raw_weights = data.get("weights", {})
         weights = {
-            "root_third_fifth": float(raw_weights.get("root_third_fifth", 1.5)),
-            "bass_to_any": float(raw_weights.get("bass_to_any", 1.5)),
-            "root_to_dissonance": float(raw_weights.get("root_to_dissonance", 0.5)),
-            "compound_interval": float(raw_weights.get("compound_interval", 0.75)),
+            "tritone": float(raw_weights.get("tritone", 0.1)),
+            "seconds_sevenths": float(raw_weights.get("seconds_sevenths", 0.15)),
+            "thirds_sixths_fourth": float(raw_weights.get("thirds_sixths_fourth", 0.6)),
+            "fifth": float(raw_weights.get("fifth", 1.0)),
+            "root_dissonant_chord_multiplier": float(raw_weights.get("root_dissonant_chord_multiplier", 0.8)),
+            "dominant_seventh_third_adjust_cents": float(raw_weights.get("dominant_seventh_third_adjust_cents", 15.0)),
         }
         ranked, invalid = self.optimizer.optimize_from_lines(lines, weights=weights)
         stats = build_statistics(ranked, invalid, len(lines))

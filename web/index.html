@@ -71,6 +71,7 @@ D/F#,12,0.7
 Gsus4add9,9,0.8
 Cmaj7,18,1.0
 Fadd9,14,0.9</textarea>
+        <div id="invalid-details" style="margin-top:12px;"></div>
         <h3>Pair-weight multipliers</h3>
         <div class="grid" style="grid-template-columns: repeat(2, minmax(140px, 1fr));">
           <label class="label">Root↔(3|5)
@@ -169,20 +170,22 @@ const FIFTH_SIZES = {
 };
 
 const appState = { ranked: [], invalid: [], chords: [], chordBySymbol: {}, intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
+const appState = { ranked: [], invalid: [], invalidDetails: [], chords: [], intervalMap: {}, pitchMaps: {}, selectedAnalyses: {} };
 
 function parsePipeRow(raw, tableLayout) {
-  if (!raw.includes('|')) return null;
+  if (!raw.includes('|')) return {matched: false};
   const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
-  if (cells.length < 2 || cells.every(cell => cell === '')) return null;
+  if (cells.length < 2 || cells.every(cell => cell === '')) return {matched: true, reason: 'unknown_format'};
   const layout = tableLayout || [0, 1, cells.length > 2 ? 2 : null];
   const [symbolIdx, frequencyIdx, weightIdx] = layout;
-  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return null;
+  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return {matched: true, reason: 'unknown_format'};
+  if (!cells[symbolIdx]) return {matched: true, reason: 'bad_symbol'};
   const frequency = Number.parseInt(cells[frequencyIdx], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weightText = weightIdx !== null && weightIdx < cells.length ? cells[weightIdx] : '';
   const weight = weightText === '' ? 1.0 : Number(weightText);
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: cells[symbolIdx], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: cells[symbolIdx], frequency, weight } };
 }
 
 function readPipeHeaderLayout(raw) {
@@ -202,30 +205,59 @@ function isPipeSeparatorLine(raw) {
 function parseGenericTriplet(raw) {
   const normalized = raw.replace(/[\[\]\(\)"']/g, ' ').trim();
   const parts = normalized.split(/[,\t; ]+/).filter(Boolean);
-  if (parts.length < 2 || parts.length > 3) return null;
+  if (parts.length < 2 || parts.length > 3) return {matched: false};
   const frequency = Number.parseInt(parts[1], 10);
-  if (!Number.isFinite(frequency)) return null;
+  if (!Number.isFinite(frequency)) return {matched: true, reason: 'bad_frequency'};
   const weight = parts.length === 3 ? Number(parts[2]) : 1.0;
-  if (!Number.isFinite(weight)) return null;
-  return { symbol: parts[0], frequency, weight };
+  if (!Number.isFinite(weight)) return {matched: true, reason: 'bad_weight'};
+  return { matched: true, parsed: { symbol: parts[0], frequency, weight } };
 }
 
 function parseLine(raw, tableLayout) {
   const pipe = parsePipeRow(raw, tableLayout);
-  if (pipe) return pipe;
-  const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$/);
-  if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: csv[3] && csv[3].trim() ? Number(csv[3]) : 1.0};
-  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?/);
-  if (kv) return {symbol: kv[1].trim(), frequency: Number(kv[2]), weight: kv[3] && kv[3].trim() ? Number(kv[3]) : 1.0};
+  if (pipe.matched) return pipe.parsed ? {ok: true, parsed: pipe.parsed} : {ok: false, reason: pipe.reason};
+  if (raw.includes(',') && !raw.includes('|')) {
+    const parts = raw.split(',').map(token => token.trim());
+    if (parts.length >= 2 && parts.length <= 3) {
+      if (!parts[0]) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number.parseInt(parts[1], 10);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = parts.length === 3 && parts[2] !== '' ? Number(parts[2]) : 1.0;
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol: parts[0], frequency, weight}};
+    }
+  }
+  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*([^\s]+)(?:\s+weight\s*=\s*([^\s]+))?/i);
+  if (kv) {
+    const frequency = Number.parseInt(kv[2], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = kv[3] === undefined || kv[3] === '' ? 1.0 : Number(kv[3]);
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: kv[1].trim(), frequency, weight}};
+  }
   if (raw.trim().startsWith('{')) {
     try {
       const data = JSON.parse(raw);
-      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight: data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight)};
-    } catch (_err) { return null; }
+      const symbol = String(data.symbol ?? '').trim();
+      if (!symbol) return {ok: false, reason: 'bad_symbol'};
+      const frequency = Number(data.frequency);
+      if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+      const weight = data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight);
+      if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+      return {ok: true, parsed: {symbol, frequency, weight}};
+    } catch (_err) { return {ok: false, reason: 'invalid_json'}; }
   }
-  const x = raw.match(/^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$/);
-  if (x) return {symbol: x[2].trim(), frequency: Number(x[1]), weight: x[3] && x[3].trim() ? Number(x[3]) : 1.0};
-  return parseGenericTriplet(raw);
+  const x = raw.match(/^\s*(\S+)x\s+([^@]+?)(?:\s*@\s*(\S+))?\s*$/);
+  if (x) {
+    const frequency = Number.parseInt(x[1], 10);
+    if (!Number.isFinite(frequency)) return {ok: false, reason: 'bad_frequency'};
+    const weight = x[3] && x[3].trim() ? Number(x[3]) : 1.0;
+    if (!Number.isFinite(weight)) return {ok: false, reason: 'bad_weight'};
+    return {ok: true, parsed: {symbol: x[2].trim(), frequency, weight}};
+  }
+  const generic = parseGenericTriplet(raw);
+  if (generic.matched) return generic.parsed ? {ok: true, parsed: generic.parsed} : {ok: false, reason: generic.reason};
+  return {ok: false, reason: 'unknown_format'};
 }
 
 function decodeFactors(body) {
@@ -393,8 +425,9 @@ function optimize(lines) {
 function optimizeWithWeights(lines, weights) {
   const parsed = [];
   const invalid = [];
+  const invalidDetails = [];
   let tableLayout = null;
-  for (const line of lines) {
+  for (const [lineIndex, line] of lines.entries()) {
     const raw = String(line).trim();
     if (!raw) { tableLayout = null; continue; }
     if (raw === '.' || raw === '…') continue;
@@ -403,7 +436,11 @@ function optimizeWithWeights(lines, weights) {
     if (isPipeSeparatorLine(raw)) continue;
     if (!raw.includes('|')) tableLayout = null;
     const one = parseLine(raw, tableLayout);
-    if (one) parsed.push(one); else invalid.push(raw);
+    if (one.ok) parsed.push(one.parsed);
+    else {
+      invalid.push(raw);
+      invalidDetails.push({lineIndex, lineNumber: lineIndex + 1, raw, reason: one.reason || 'unknown_format'});
+    }
   }
 
   const chords = parsed.map(decodeChord).filter(Boolean);
@@ -422,7 +459,7 @@ function optimizeWithWeights(lines, weights) {
   }
 
   records.sort((a, b) => a.final_score_cents - b.final_score_cents || a.wrmse_cents - b.wrmse_cents || a.wmae_cents - b.wmae_cents || a.family.localeCompare(b.family) || a.center.localeCompare(b.center));
-  return {ranked: records, invalid, chords, intervalMap, pitchMaps};
+  return {ranked: records, invalid, invalidDetails, chords, intervalMap, pitchMaps};
 }
 
 function buildStats(ranked, invalid, inputLines) {
@@ -441,6 +478,35 @@ function renderStats(stats) {
 
 function renderTable(ranked) {
   document.getElementById('rows').innerHTML = ranked.slice(0, 15).map((r, idx) => `<tr><td>${idx + 1}</td><td>${r.family}</td><td>${r.center}</td><td>${Number(r.wmae_cents).toFixed(3)}</td><td>${Number(r.wrmse_cents).toFixed(3)}</td><td><strong>${Number(r.final_score_cents).toFixed(3)}</strong></td></tr>`).join('');
+}
+
+function escapeHtml(value) {
+  return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
+function focusInputLine(lineIndex) {
+  const textarea = document.getElementById('input');
+  const allLines = textarea.value.split(/\r?\n/);
+  if (lineIndex < 0 || lineIndex >= allLines.length) return;
+  let start = 0;
+  for (let idx = 0; idx < lineIndex; idx += 1) start += allLines[idx].length + 1;
+  const end = start + allLines[lineIndex].length;
+  textarea.focus();
+  textarea.setSelectionRange(start, end);
+  const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 20;
+  textarea.scrollTop = Math.max(0, lineIndex * lineHeight - 2 * lineHeight);
+}
+
+function renderInvalidDetails(invalidDetails) {
+  const host = document.getElementById('invalid-details');
+  if (!invalidDetails.length) {
+    host.innerHTML = '';
+    return;
+  }
+  host.innerHTML = `<h3>Invalid rows</h3><div class="scroll-x"><table><thead><tr><th>Line</th><th>Raw</th><th>Reason</th></tr></thead><tbody>${invalidDetails.map(row => `<tr data-line-index="${row.lineIndex}" style="cursor:pointer;"><td>${row.lineNumber}</td><td class="mono">${escapeHtml(row.raw)}</td><td><span class="pill warn">${escapeHtml(row.reason)}</span></td></tr>`).join('')}</tbody></table></div>`;
+  for (const row of host.querySelectorAll('tr[data-line-index]')) {
+    row.addEventListener('click', () => focusInputLine(Number(row.dataset.lineIndex)));
+  }
 }
 
 function renderContributors(best) {
@@ -608,6 +674,7 @@ document.getElementById('run').addEventListener('click', () => {
   const result = optimizeWithWeights(lines, weights);
   appState.ranked = result.ranked;
   appState.invalid = result.invalid;
+  appState.invalidDetails = result.invalidDetails;
   appState.chords = result.chords;
   appState.chordBySymbol = Object.fromEntries(result.chords.map(chord => [chord.symbol, chord]));
   appState.intervalMap = result.intervalMap;
@@ -617,8 +684,9 @@ document.getElementById('run').addEventListener('click', () => {
   const stats = buildStats(result.ranked, result.invalid, lines.length);
   renderStats(stats);
   renderTable(result.ranked);
+  renderInvalidDetails(result.invalidDetails);
   renderContributors(result.ranked[0]);
-  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines (${result.invalid.length}): ${result.invalid.join(' | ')}` : 'No invalid lines.';
+  document.getElementById('invalid').textContent = result.invalid.length ? `Invalid lines: ${result.invalid.length}.` : 'Invalid lines: 0.';
   initializeSelectors();
   renderCandidateDiagnostics();
 
