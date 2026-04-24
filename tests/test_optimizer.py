@@ -73,6 +73,26 @@ def test_input_adapter_parses_user_table_shape_with_blank_weights():
     assert [chord.weight for chord in parsed] == [1.0] * 7
 
 
+def test_input_adapter_parses_first_six_rows_from_user_table_exactly():
+    lines = [
+        ".",
+        "| Chord | Frequency | weight|",
+        "|---|---|---|",
+        "| A | 12 |  |",
+        "| A7 | 1 |  |",
+        "| AM7 | 4 |  |",
+        "| Am7 | 1 |  |",
+        "| B | 3 |  |",
+        "| B7 | 6 |  |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7", "Am7", "B", "B7"]
+    assert [chord.frequency for chord in parsed] == [12, 1, 4, 1, 3, 6]
+    assert [chord.weight for chord in parsed] == [1.0] * 6
+
+
 def test_input_adapter_uses_pipe_header_column_positions():
     lines = [
         "| weight | chord | frequency | notes |",
