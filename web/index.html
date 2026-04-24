@@ -57,6 +57,9 @@
     .ranking-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:10px; }
     .ranking-filter-grid { display:grid; gap:10px; grid-template-columns: repeat(4, minmax(140px, 1fr)); margin-top:10px; }
     .virtual-viewport { height: 360px; overflow-y: auto; border: 1px solid #2d365f; border-radius: 10px; margin-top: 10px; }
+    .advanced-panel { margin-top: 10px; border: 1px solid #2d365f; border-radius: 10px; background: rgba(13, 21, 50, 0.35); }
+    .advanced-panel summary { cursor: pointer; padding: 10px 12px; color: var(--muted); font-weight: 600; }
+    .advanced-panel-body { padding: 0 12px 12px; }
     @media (max-width: 980px) {
       .layout, .bench-grid, .controls { grid-template-columns: 1fr; }
       .stats { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
@@ -121,20 +124,6 @@ Fadd9,14,0.9</textarea>
         <span id="ranking-count" class="small"></span>
       </div>
       <div id="full-ranking-panel" style="display:none;">
-        <div class="ranking-filter-grid">
-          <label class="label">Family filter
-            <select id="ranking-family-filter" style="width:100%; margin-top:6px;"></select>
-          </label>
-          <label class="label">Center filter
-            <select id="ranking-center-filter" style="width:100%; margin-top:6px;"></select>
-          </label>
-          <label class="label">Final score min
-            <input id="ranking-final-min" type="number" step="0.001" style="width:100%; margin-top:6px;" />
-          </label>
-          <label class="label">Final score max
-            <input id="ranking-final-max" type="number" step="0.001" style="width:100%; margin-top:6px;" />
-          </label>
-        </div>
         <div id="ranking-virtual-viewport" class="virtual-viewport">
           <table>
             <thead><tr><th>#</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
@@ -158,15 +147,34 @@ Fadd9,14,0.9</textarea>
           <select id="selected-chord"></select>
         </label>
       </div>
-      <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
-      <label class="label" style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
-        <input id="show-decoded-chord-model" type="checkbox" />
-        Show decoded chord model
-      </label>
+      <details id="diagnostics-advanced-panel" class="advanced-panel">
+        <summary>Advanced diagnostics and ranking controls</summary>
+        <div class="advanced-panel-body">
+          <div class="ranking-filter-grid">
+            <label class="label">Family filter
+              <select id="ranking-family-filter" style="width:100%; margin-top:6px;"></select>
+            </label>
+            <label class="label">Center filter
+              <select id="ranking-center-filter" style="width:100%; margin-top:6px;"></select>
+            </label>
+            <label class="label">Final score min
+              <input id="ranking-final-min" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+            </label>
+            <label class="label">Final score max
+              <input id="ranking-final-max" type="number" step="0.001" style="width:100%; margin-top:6px;" />
+            </label>
+          </div>
+          <p class="small" style="margin-top:8px;">Choose up to five candidates for side-by-side interval diagnostics. 12-TET is included automatically as a benchmark column.</p>
+          <label class="label" style="display:inline-flex; align-items:center; gap:8px; margin-top:8px;">
+            <input id="show-decoded-chord-model" type="checkbox" />
+            Show decoded chord model
+          </label>
+          <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
+            <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
+          </label>
+        </div>
+      </details>
       <div id="decoded-chord-model" class="scroll-x" style="display:none; margin-top:8px;"></div>
-      <label class="label" style="display:block; margin-top:8px;">Selected temperaments (max 5)
-        <select id="selected-comparisons" multiple size="8" style="width:100%; margin-top:6px;"></select>
-      </label>
 
       <div id="candidate-score" style="margin-top:14px;"></div>
 
@@ -235,6 +243,20 @@ const appState = {
   intervalMap: {},
   pitchMaps: {},
   selectedAnalyses: {},
+  diagnosticsView: {
+    advancedOpen: false,
+    family: '',
+    center: '',
+    chord: '',
+    showDecodedChordModel: false,
+    selectedComparisons: [],
+  },
+  rankingFilters: {
+    family: 'ALL',
+    center: 'ALL',
+    finalMin: '',
+    finalMax: '',
+  },
   rankingView: { expanded: false, filtered: [], startIndex: 0, visibleCount: 0, scrollTop: 0, rowHeight: 38 },
 };
 
@@ -581,10 +603,10 @@ function renderExpandedRankingRows() {
 }
 
 function applyRankingFilters(resetScroll = true) {
-  const family = document.getElementById('ranking-family-filter').value;
-  const center = document.getElementById('ranking-center-filter').value;
-  const minText = document.getElementById('ranking-final-min').value;
-  const maxText = document.getElementById('ranking-final-max').value;
+  const family = appState.rankingFilters.family;
+  const center = appState.rankingFilters.center;
+  const minText = appState.rankingFilters.finalMin;
+  const maxText = appState.rankingFilters.finalMax;
   const min = minText === '' ? -Infinity : Number(minText);
   const max = maxText === '' ? Infinity : Number(maxText);
 
@@ -612,8 +634,10 @@ function initializeRankingPanel() {
   const families = Array.from(new Set(appState.ranked.map(row => row.family)));
   familyFilter.innerHTML = ['<option value="ALL">All families</option>', ...families.map(name => `<option value="${name}">${name}</option>`)].join('');
   centerFilter.innerHTML = ['<option value="ALL">All centers</option>', ...CENTERS.map(center => `<option value="${center}">${center}</option>`)].join('');
-  document.getElementById('ranking-final-min').value = '';
-  document.getElementById('ranking-final-max').value = '';
+  familyFilter.value = families.includes(appState.rankingFilters.family) ? appState.rankingFilters.family : 'ALL';
+  centerFilter.value = appState.rankingFilters.center === 'ALL' || CENTERS.includes(appState.rankingFilters.center) ? appState.rankingFilters.center : 'ALL';
+  document.getElementById('ranking-final-min').value = appState.rankingFilters.finalMin;
+  document.getElementById('ranking-final-max').value = appState.rankingFilters.finalMax;
 
   panel.style.display = appState.rankingView.expanded ? 'block' : 'none';
   toggleButton.textContent = appState.rankingView.expanded ? 'Collapse full ranking' : 'Expand full ranking';
@@ -626,8 +650,16 @@ function initializeRankingPanel() {
       if (appState.rankingView.expanded) renderExpandedRankingRows();
     });
     for (const id of ['ranking-family-filter', 'ranking-center-filter', 'ranking-final-min', 'ranking-final-max']) {
-      document.getElementById(id).addEventListener('input', () => applyRankingFilters(true));
-      document.getElementById(id).addEventListener('change', () => applyRankingFilters(true));
+      const control = document.getElementById(id);
+      const rerenderRanking = () => {
+        appState.rankingFilters.family = document.getElementById('ranking-family-filter').value;
+        appState.rankingFilters.center = document.getElementById('ranking-center-filter').value;
+        appState.rankingFilters.finalMin = document.getElementById('ranking-final-min').value;
+        appState.rankingFilters.finalMax = document.getElementById('ranking-final-max').value;
+        applyRankingFilters(true);
+      };
+      control.addEventListener('input', rerenderRanking);
+      control.addEventListener('change', rerenderRanking);
     }
     viewport.addEventListener('scroll', () => {
       appState.rankingView.scrollTop = viewport.scrollTop;
@@ -665,7 +697,7 @@ function renderClosestFurthest(rows, elemId, reverse=false) {
 }
 
 function renderDecodedChord(selectedSymbol) {
-  const showDecoded = document.getElementById('show-decoded-chord-model').checked;
+  const showDecoded = appState.diagnosticsView.showDecodedChordModel;
   const host = document.getElementById('decoded-chord-model');
   if (!showDecoded) {
     host.style.display = 'none';
@@ -706,15 +738,61 @@ function quantileFromSorted(sortedValues, quantile) {
   return sortedValues[lowerIndex] + (sortedValues[upperIndex] - sortedValues[lowerIndex]) * weight;
 }
 
+function renderIntervalBreakdown(chord, center, selectedComparisons) {
+  const comparisonKeys = [`12-TET baseline__${center}`, ...selectedComparisons.filter(v => v !== `12-TET baseline__${center}`)];
+  const chordRows = {};
+  for (const key of comparisonKeys) {
+    const [f, c] = key.split('__');
+    const analysis = ensureAnalysis(f, c);
+    const row = analysis.perChord.find(one => one.symbol === chord);
+    if (!row) continue;
+    for (const detail of row.details) {
+      const detailKey = detail.label;
+      if (!chordRows[detailKey]) chordRows[detailKey] = { label: detail.label, ji: detail.ji, spans: detail.span, values: {} };
+      chordRows[detailKey].values[key] = detail;
+    }
+  }
+
+  const columns = comparisonKeys.filter(key => key in appState.pitchMaps);
+  const intervalRows = Object.values(chordRows).sort((a,b) => a.spans - b.spans);
+  if (!intervalRows.length) {
+    document.getElementById('interval-breakdown').innerHTML = '<p class="small">No interval data for this chord selection.</p>';
+    return;
+  }
+
+  const activeErrors = [];
+  for (const row of intervalRows) {
+    for (const key of columns) {
+      const value = row.values[key];
+      if (value) activeErrors.push(value.error);
+    }
+  }
+  activeErrors.sort((a, b) => a - b);
+  const lowUpperBound = quantileFromSorted(activeErrors, 1 / 3);
+  const midUpperBound = quantileFromSorted(activeErrors, 2 / 3);
+  const classifyErrorBand = (error) => {
+    if (error <= lowUpperBound) return 'error-low';
+    if (error <= midUpperBound) return 'error-mid';
+    return 'error-high';
+  };
+
+  document.getElementById('interval-breakdown').innerHTML = `<div class="small" style="margin-bottom:8px;">Relative error bands (current view): low/mid/high</div><table><thead><tr><th>Interval</th><th>JI target</th>${columns.map(key => `<th>${key.replace('__', ' · ')} error</th>`).join('')}</tr></thead><tbody>${intervalRows.map(row => `<tr><td>${row.label}</td><td>${row.ji.toFixed(3)}</td>${columns.map(key => {
+    const value = row.values[key];
+    if (!value) return '<td>-</td>';
+    const cls = classifyErrorBand(value.error);
+    return `<td><span class="${cls}">${value.error.toFixed(3)}</span><div class="small">temp=${value.temperament.toFixed(3)}</div></td>`;
+  }).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
 function renderCandidateDiagnostics() {
   if (!appState.ranked.length || !appState.chords.length) {
     document.getElementById('candidate-score').innerHTML = '<p class="small">Run optimization to unlock diagnostics.</p>';
-    renderDecodedChord(document.getElementById('selected-chord').value);
+    renderDecodedChord(appState.diagnosticsView.chord);
     return;
   }
-  const family = document.getElementById('selected-family').value;
-  const center = document.getElementById('selected-center').value;
-  const chord = document.getElementById('selected-chord').value;
+  const family = appState.diagnosticsView.family;
+  const center = appState.diagnosticsView.center;
+  const chord = appState.diagnosticsView.chord;
   renderDecodedChord(chord);
   const selectedRecord = appState.ranked.find(r => r.family === family && r.center === center);
   const baselineRecord = appState.ranked.find(r => r.family === '12-TET baseline' && r.center === center);
@@ -741,49 +819,7 @@ function renderCandidateDiagnostics() {
   renderClosestFurthest(selectedAnalysis.perChord, 'closest', false);
   renderClosestFurthest(selectedAnalysis.perChord, 'furthest', true);
 
-  const selectedComparisons = Array.from(document.getElementById('selected-comparisons').selectedOptions).map(opt => opt.value).slice(0, 5);
-  const comparisonKeys = [`12-TET baseline__${center}`, ...selectedComparisons.filter(v => v !== `12-TET baseline__${center}`)];
-  const chordRows = {};
-  for (const key of comparisonKeys) {
-    const [f, c] = key.split('__');
-    const analysis = ensureAnalysis(f, c);
-    const row = analysis.perChord.find(one => one.symbol === chord);
-    if (!row) continue;
-    for (const detail of row.details) {
-      const detailKey = detail.label;
-      if (!chordRows[detailKey]) chordRows[detailKey] = { label: detail.label, ji: detail.ji, spans: detail.span, values: {} };
-      chordRows[detailKey].values[key] = detail;
-    }
-  }
-
-  const columns = comparisonKeys.filter(key => key in appState.pitchMaps);
-  const intervalRows = Object.values(chordRows).sort((a,b) => a.spans - b.spans);
-  if (!intervalRows.length) {
-    document.getElementById('interval-breakdown').innerHTML = '<p class="small">No interval data for this chord selection.</p>';
-  } else {
-    const activeErrors = [];
-    for (const row of intervalRows) {
-      for (const key of columns) {
-        const value = row.values[key];
-        if (value) activeErrors.push(value.error);
-      }
-    }
-    activeErrors.sort((a, b) => a - b);
-    const lowUpperBound = quantileFromSorted(activeErrors, 1 / 3);
-    const midUpperBound = quantileFromSorted(activeErrors, 2 / 3);
-    const classifyErrorBand = (error) => {
-      if (error <= lowUpperBound) return 'error-low';
-      if (error <= midUpperBound) return 'error-mid';
-      return 'error-high';
-    };
-
-    document.getElementById('interval-breakdown').innerHTML = `<div class="small" style="margin-bottom:8px;">Relative error bands (current view): low/mid/high</div><table><thead><tr><th>Interval</th><th>JI target</th>${columns.map(key => `<th>${key.replace('__', ' · ')} error</th>`).join('')}</tr></thead><tbody>${intervalRows.map(row => `<tr><td>${row.label}</td><td>${row.ji.toFixed(3)}</td>${columns.map(key => {
-      const value = row.values[key];
-      if (!value) return '<td>-</td>';
-      const cls = classifyErrorBand(value.error);
-      return `<td><span class="${cls}">${value.error.toFixed(3)}</span><div class="small">temp=${value.temperament.toFixed(3)}</div></td>`;
-    }).join('')}</tr>`).join('')}</tbody></table>`;
-  }
+  renderIntervalBreakdown(chord, center, appState.diagnosticsView.selectedComparisons);
 }
 
 function initializeSelectors() {
@@ -791,27 +827,57 @@ function initializeSelectors() {
   const centerEl = document.getElementById('selected-center');
   const chordEl = document.getElementById('selected-chord');
   const comparisonEl = document.getElementById('selected-comparisons');
+  const advancedPanel = document.getElementById('diagnostics-advanced-panel');
+  const showDecodedEl = document.getElementById('show-decoded-chord-model');
 
   familyEl.innerHTML = Object.keys(FIFTH_CHAINS).map(name => `<option value="${name}">${name}</option>`).join('');
   centerEl.innerHTML = CENTERS.map(center => `<option value="${center}">${center}</option>`).join('');
   chordEl.innerHTML = appState.chords.map(chord => `<option value="${chord.symbol}">${chord.symbol}</option>`).join('');
   comparisonEl.innerHTML = appState.ranked.map(r => `<option value="${r.family}__${r.center}">${r.family} · ${r.center}</option>`).join('');
 
-  if (appState.ranked.length) {
-    familyEl.value = appState.ranked[0].family;
-    centerEl.value = appState.ranked[0].center;
-    const defaultSelections = appState.ranked.slice(0, 5).map(r => `${r.family}__${r.center}`);
-    for (const option of comparisonEl.options) option.selected = defaultSelections.includes(option.value);
-  }
+  const allowedComparisons = new Set(appState.ranked.map(r => `${r.family}__${r.center}`));
+  const defaultSelections = appState.ranked.slice(0, 5).map(r => `${r.family}__${r.center}`);
+  const firstChord = appState.chords[0]?.symbol || '';
+  appState.diagnosticsView.family = appState.diagnosticsView.family && Object.hasOwn(FIFTH_CHAINS, appState.diagnosticsView.family) ? appState.diagnosticsView.family : (appState.ranked[0]?.family || Object.keys(FIFTH_CHAINS)[0]);
+  appState.diagnosticsView.center = CENTERS.includes(appState.diagnosticsView.center) ? appState.diagnosticsView.center : (appState.ranked[0]?.center || CENTERS[0]);
+  appState.diagnosticsView.chord = appState.chords.some(chord => chord.symbol === appState.diagnosticsView.chord) ? appState.diagnosticsView.chord : firstChord;
+  appState.diagnosticsView.selectedComparisons = appState.diagnosticsView.selectedComparisons.filter(key => allowedComparisons.has(key)).slice(0, 5);
+  if (!appState.diagnosticsView.selectedComparisons.length) appState.diagnosticsView.selectedComparisons = defaultSelections;
 
-  for (const id of ['selected-family', 'selected-center', 'selected-chord', 'selected-comparisons', 'show-decoded-chord-model']) {
-    document.getElementById(id).addEventListener('change', () => {
-      if (id === 'selected-comparisons') {
-        const selected = Array.from(comparisonEl.selectedOptions);
-        if (selected.length > 5) selected[selected.length - 1].selected = false;
-      }
+  familyEl.value = appState.diagnosticsView.family;
+  centerEl.value = appState.diagnosticsView.center;
+  chordEl.value = appState.diagnosticsView.chord;
+  showDecodedEl.checked = appState.diagnosticsView.showDecodedChordModel;
+  advancedPanel.open = appState.diagnosticsView.advancedOpen;
+  for (const option of comparisonEl.options) option.selected = appState.diagnosticsView.selectedComparisons.includes(option.value);
+
+  if (!familyEl.dataset.bound) {
+    familyEl.addEventListener('change', () => {
+      appState.diagnosticsView.family = familyEl.value;
       renderCandidateDiagnostics();
     });
+    centerEl.addEventListener('change', () => {
+      appState.diagnosticsView.center = centerEl.value;
+      renderCandidateDiagnostics();
+    });
+    chordEl.addEventListener('change', () => {
+      appState.diagnosticsView.chord = chordEl.value;
+      renderCandidateDiagnostics();
+    });
+    comparisonEl.addEventListener('change', () => {
+      const selected = Array.from(comparisonEl.selectedOptions);
+      if (selected.length > 5) selected[selected.length - 1].selected = false;
+      appState.diagnosticsView.selectedComparisons = Array.from(comparisonEl.selectedOptions).map(opt => opt.value).slice(0, 5);
+      renderIntervalBreakdown(appState.diagnosticsView.chord, appState.diagnosticsView.center, appState.diagnosticsView.selectedComparisons);
+    });
+    showDecodedEl.addEventListener('change', () => {
+      appState.diagnosticsView.showDecodedChordModel = showDecodedEl.checked;
+      renderDecodedChord(appState.diagnosticsView.chord);
+    });
+    advancedPanel.addEventListener('toggle', () => {
+      appState.diagnosticsView.advancedOpen = advancedPanel.open;
+    });
+    familyEl.dataset.bound = '1';
   }
 }
 
