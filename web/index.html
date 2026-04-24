@@ -101,22 +101,67 @@ const FIFTH_SIZES = {
   'Zarlino':699.250,'Salinas':699.150,'12-TET baseline':700.000,
 };
 
-function parseLine(raw) {
-  const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$/);
-  if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: Number(csv[3])};
-  const pipe = raw.match(/^\s*([^|]+)\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)\s*$/);
-  if (pipe) return {symbol: pipe[1].trim(), frequency: Number(pipe[2]), weight: Number(pipe[3])};
-  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)/);
-  if (kv) return {symbol: kv[1].trim(), frequency: Number(kv[2]), weight: Number(kv[3])};
+function parsePipeRow(raw, tableLayout) {
+  if (!raw.includes('|')) return null;
+  const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
+  if (cells.length < 2 || cells.every(cell => cell === '')) return null;
+  const layout = tableLayout || [0, 1, cells.length > 2 ? 2 : null];
+  const [symbolIdx, frequencyIdx, weightIdx] = layout;
+  if (symbolIdx >= cells.length || frequencyIdx >= cells.length) return null;
+  const frequency = Number.parseInt(cells[frequencyIdx], 10);
+  if (!Number.isFinite(frequency)) return null;
+  const weightText = weightIdx !== null && weightIdx < cells.length ? cells[weightIdx] : '';
+  const weight = weightText === '' ? 1.0 : Number(weightText);
+  if (!Number.isFinite(weight)) return null;
+  return { symbol: cells[symbolIdx], frequency, weight };
+}
+
+function readPipeHeaderLayout(raw) {
+  if (!raw.includes('|')) return null;
+  const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
+  const lowered = cells.map(c => c.toLowerCase());
+  if (!lowered.includes('chord') || !lowered.includes('frequency')) return null;
+  const symbolIdx = lowered.indexOf('chord');
+  const frequencyIdx = lowered.indexOf('frequency');
+  const weightIdx = lowered.includes('weight') ? lowered.indexOf('weight') : null;
+  return [symbolIdx, frequencyIdx, weightIdx];
+}
+
+function isPipeSeparatorLine(raw) {
+  if (!raw.includes('|')) return false;
+  const cells = raw.split('|').map(cell => cell.trim()).filter((_, i, arr) => !(i === 0 && arr[0] === '') && !(i === arr.length - 1 && arr[arr.length - 1] === ''));
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell));
+}
+
+function parseGenericTriplet(raw) {
+  const normalized = raw.replace(/[\[\]\(\)"']/g, ' ').trim();
+  const parts = normalized.split(/[,\t; ]+/).filter(Boolean);
+  if (parts.length < 2 || parts.length > 3) return null;
+  const frequency = Number.parseInt(parts[1], 10);
+  if (!Number.isFinite(frequency)) return null;
+  const weight = parts.length === 3 ? Number(parts[2]) : 1.0;
+  if (!Number.isFinite(weight)) return null;
+  return { symbol: parts[0], frequency, weight };
+}
+
+function parseLine(raw, tableLayout) {
+  const pipe = parsePipeRow(raw, tableLayout);
+  if (pipe) return pipe;
+
+  const csv = raw.match(/^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$/);
+  if (csv) return {symbol: csv[1].trim(), frequency: Number(csv[2]), weight: csv[3] && csv[3].trim() ? Number(csv[3]) : 1.0};
+  const kv = raw.match(/symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?/);
+  if (kv) return {symbol: kv[1].trim(), frequency: Number(kv[2]), weight: kv[3] && kv[3].trim() ? Number(kv[3]) : 1.0};
   if (raw.trim().startsWith('{')) {
     try {
       const data = JSON.parse(raw);
-      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight: Number(data.weight)};
+      const weight = data.weight === undefined || data.weight === null || data.weight === '' ? 1.0 : Number(data.weight);
+      return {symbol: String(data.symbol), frequency: Number(data.frequency), weight};
     } catch (_err) { return null; }
   }
-  const x = raw.match(/^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$/);
-  if (x) return {symbol: x[2].trim(), frequency: Number(x[1]), weight: Number(x[3])};
-  return null;
+  const x = raw.match(/^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$/);
+  if (x) return {symbol: x[2].trim(), frequency: Number(x[1]), weight: x[3] && x[3].trim() ? Number(x[3]) : 1.0};
+  return parseGenericTriplet(raw);
 }
 
 function decodeFactors(body) {
@@ -266,8 +311,24 @@ function scorePiece(chords, intervalMap, pitchMap) {
 function optimize(lines, weights) {
   const parsed = [];
   const invalid = [];
-  for (const raw of lines.map(s => String(s).trim()).filter(Boolean)) {
-    const one = parseLine(raw);
+  let tableLayout = null;
+  for (const line of lines) {
+    const raw = String(line).trim();
+    if (!raw) {
+      tableLayout = null;
+      continue;
+    }
+    if (raw === '.' || raw === '…') continue;
+
+    const headerLayout = readPipeHeaderLayout(raw);
+    if (headerLayout) {
+      tableLayout = headerLayout;
+      continue;
+    }
+    if (isPipeSeparatorLine(raw)) continue;
+    if (!raw.includes('|')) tableLayout = null;
+
+    const one = parseLine(raw, tableLayout);
     if (one) parsed.push(one); else invalid.push(raw);
   }
 
