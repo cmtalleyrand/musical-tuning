@@ -48,6 +48,27 @@ def test_input_adapter_parses_markdown_table_and_defaults_missing_weight_to_one(
     assert [chord.weight for chord in parsed] == [1.5, 1.0, 1.0]
 
 
+def test_input_adapter_parses_user_table_shape_with_blank_weights():
+    lines = [
+        ".",
+        "| Chord | Frequency | weight|",
+        "|---|---|---|",
+        "| A | 12 |  |",
+        "| A7 | 1 |  |",
+        "| AM7 | 4 |  |",
+        "| Am7 | 1 |  |",
+        "| Bb | 1 |  |",
+        "| C#sus2 | 3 |  |",
+        "| G#m | 10 |  |",
+    ]
+    parsed, invalid = InputAdapter().parse_lines(lines)
+
+    assert invalid == []
+    assert [chord.symbol for chord in parsed] == ["A", "A7", "AM7", "Am7", "Bb", "C#sus2", "G#m"]
+    assert [chord.frequency for chord in parsed] == [12, 1, 4, 1, 1, 3, 10]
+    assert [chord.weight for chord in parsed] == [1.0] * 7
+
+
 def test_decoder_preserves_bass_and_extensions():
     chord = ChordDecoder().decode(InputAdapter().parse_lines(["Gsus4add9,3,1.2"])[0][0])
 
