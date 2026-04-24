@@ -14,12 +14,12 @@ Each chord entry uses three fields:
 ### Text Input Formats
 The parser supports these equivalent line formats:
 1. `Am7,24,1.0`
-2. `Am7 | freq=24 | weight=1.0`
-3. `symbol=Am7 frequency=24 weight=1.0`
-4. `{"symbol":"Am7","frequency":24,"weight":1.0}`
-5. `24x Am7 @1.0`
+2. `Am7 | 24 | 1.0` 
+4. `symbol=Am7 frequency=24 weight=1.0`
+5. `{"symbol":"Am7","frequency":24,"weight":1.0}`
+6. `24x Am7 @1.0`
 
-A single-pass tokenizer gives `O(L)` parsing cost per line where `L` is line length.
+A single-pass tokenizer gives `O(L)` parsing cost per line where `L` is line length. UI must display extracted chords alongside frequency and weight, and surface invalid lines for user correction.
 
 ## Chord and Interval Data Model
 
@@ -47,10 +47,9 @@ All weights are configurable by the user.
 Default multipliers:
 - root to third/fifth: `1.5`
 - bass to any other note: `1.5`
-- root to dissonance (2nd, tritone, 7th): `0.5`
+- any note to a dissonance from root (2nd, tritone, 7th): `0.5`
 - compound interval: `0.75`
-- factor-specific map includes independent controls for `2`, `9`, `11`, `13`, and sevenths
-
+  
 Final interval-pair weight is the product of active multipliers, computed in `O(1)` using direct lookup.
 
 ## Temperament Catalogue
@@ -100,6 +99,8 @@ Total runtime is `O(C × P × T)`:
 - `C`: chord entries
 - `P`: average interval pairs per chord
 - `T`: tuning candidates
+
+UI must surface detailed and informative metrics not aggregate score.
 
 ## Architecture
 1. `InputAdapter` — text parsing and normalization
