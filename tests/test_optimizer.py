@@ -148,3 +148,20 @@ def test_build_statistics_reports_best_and_mean_scores():
     assert stats.best_center == "C"
     assert stats.best_final_score_cents == 1.0
     assert stats.mean_final_score_cents == 3.0
+
+
+def test_optimizer_accepts_weight_overrides():
+    optimizer = MusicalTuningOptimizer()
+    ranked_default, _ = optimizer.optimize_from_lines(["Am7,24,1.0", "D/F#,12,0.7"])
+    ranked_custom, _ = optimizer.optimize_from_lines(
+        ["Am7,24,1.0", "D/F#,12,0.7"],
+        weights={
+            "root_third_fifth": 2.0,
+            "bass_to_any": 1.2,
+            "root_to_dissonance": 0.8,
+            "compound_interval": 0.9,
+        },
+    )
+
+    assert ranked_default and ranked_custom
+    assert ranked_default[0]["final_score_cents"] != ranked_custom[0]["final_score_cents"]
