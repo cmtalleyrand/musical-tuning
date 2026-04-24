@@ -9,3 +9,6 @@ dependencies = []
 
 [tool.setuptools.packages.find]
 include = ["musical_tuning*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
