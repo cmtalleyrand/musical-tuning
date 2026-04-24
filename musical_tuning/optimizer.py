@@ -87,12 +87,10 @@ class RankedRecord:
 
 
 class InputAdapter:
-    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$")
-    _pipe_re = re.compile(r"^\s*\|?\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)?\s*\|?\s*$")
-    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)")
-    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$")
-    _md_header_re = re.compile(r"^\s*\|?\s*chord\s*\|\s*frequency\s*\|\s*weight\s*\|?\s*$", re.IGNORECASE)
-    _md_separator_re = re.compile(r"^\s*\|?\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|\s*:?-{3,}:?\s*\|?\s*$")
+    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$")
+    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?")
+    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$")
+    _md_separator_cell_re = re.compile(r"^:?-{3,}:?$")
 
     def parse_lines(self, lines: Iterable[str]) -> tuple[list[ParsedChordInput], list[str]]:
         parsed: list[ParsedChordInput] = []
@@ -101,7 +99,9 @@ class InputAdapter:
             raw = line.strip()
             if not raw:
                 continue
-            if self._md_header_re.match(raw) or self._md_separator_re.match(raw):
+            if raw in {".", "…"}:
+                continue
+            if self._is_pipe_metadata_line(raw):
                 continue
             parsed_line = self._parse_line(raw)
             if parsed_line is None:
@@ -111,7 +111,11 @@ class InputAdapter:
         return parsed, invalid
 
     def _parse_line(self, raw: str) -> ParsedChordInput | None:
-        for regex in (self._csv_re, self._pipe_re, self._kv_re):
+        parsed_pipe = self._parse_pipe_row(raw)
+        if parsed_pipe is not None:
+            return parsed_pipe
+
+        for regex in (self._csv_re, self._kv_re):
             m = regex.search(raw)
             if m:
                 weight_str = m.group(3)
@@ -121,14 +125,47 @@ class InputAdapter:
         if raw.startswith("{"):
             try:
                 data = json.loads(raw)
-                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=float(data["weight"]))
+                weight = 1.0 if "weight" not in data or data["weight"] in (None, "") else float(data["weight"])
+                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=weight)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 return None
 
         m = self._x_re.search(raw)
         if m:
-            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=float(m.group(3)))
+            weight_str = m.group(3)
+            weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=weight)
         return None
+
+    def _parse_pipe_row(self, raw: str) -> ParsedChordInput | None:
+        if "|" not in raw:
+            return None
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        if len(cells) < 2:
+            return None
+
+        try:
+            symbol = cells[0]
+            frequency = int(cells[1])
+        except (ValueError, IndexError):
+            return None
+
+        weight_str = cells[2] if len(cells) > 2 else ""
+        try:
+            weight = 1.0 if weight_str == "" else float(weight_str)
+        except ValueError:
+            return None
+        return ParsedChordInput(symbol=symbol, frequency=frequency, weight=weight)
+
+    def _is_pipe_metadata_line(self, raw: str) -> bool:
+        if "|" not in raw:
+            return False
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        if len(cells) >= 2 and cells[0].lower() == "chord" and cells[1].lower() == "frequency":
+            return True
+        return all(self._md_separator_cell_re.match(cell) for cell in cells if cell)
 
 
 class ChordDecoder:
