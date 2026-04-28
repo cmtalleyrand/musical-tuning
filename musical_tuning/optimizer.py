@@ -73,6 +73,8 @@ class IntervalPair:
     right_semitone: int
     semitone_span: int
     weight: float
+    target_adjust_cents: float
+    root_dissonant: bool
 
 
 @dataclass(frozen=True)
@@ -87,42 +89,140 @@ class RankedRecord:
 
 
 class InputAdapter:
-    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)\s*,\s*([0-9]*\.?[0-9]+)\s*$")
-    _pipe_re = re.compile(r"^\s*([^|]+)\|\s*(\d+)\s*\|\s*([0-9]*\.?[0-9]+)\s*$")
-    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)\s+weight\s*=\s*([0-9]*\.?[0-9]+)")
-    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)\s*@\s*([0-9]*\.?[0-9]+)\s*$")
+    _csv_re = re.compile(r"^\s*([^,]+)\s*,\s*(\d+)(?:\s*,\s*([0-9]*\.?[0-9]+)?)?\s*$")
+    _kv_re = re.compile(r"symbol\s*=\s*([^\s]+)\s+frequency\s*=\s*(\d+)(?:\s+weight\s*=\s*([0-9]*\.?[0-9]+))?")
+    _x_re = re.compile(r"^\s*(\d+)x\s+([^@]+?)(?:\s*@\s*([0-9]*\.?[0-9]+))?\s*$")
+    _md_separator_cell_re = re.compile(r"^:?-{3,}:?$")
+    _generic_delimiter_re = re.compile(r"[,\t; ]+")
 
     def parse_lines(self, lines: Iterable[str]) -> tuple[list[ParsedChordInput], list[str]]:
         parsed: list[ParsedChordInput] = []
         invalid: list[str] = []
+        table_layout: tuple[int, int, int | None] | None = None
         for line in lines:
             raw = line.strip()
             if not raw:
+                table_layout = None
                 continue
-            parsed_line = self._parse_line(raw)
+            if raw in {".", "…"}:
+                continue
+
+            header_layout = self._read_pipe_header_layout(raw)
+            if header_layout is not None:
+                table_layout = header_layout
+                continue
+
+            if self._is_pipe_separator_line(raw):
+                continue
+
+            if "|" not in raw:
+                table_layout = None
+            parsed_line = self._parse_line(raw, table_layout)
             if parsed_line is None:
                 invalid.append(raw)
             else:
                 parsed.append(parsed_line)
         return parsed, invalid
 
-    def _parse_line(self, raw: str) -> ParsedChordInput | None:
-        for regex in (self._csv_re, self._pipe_re, self._kv_re):
+    def _parse_line(self, raw: str, table_layout: tuple[int, int, int | None] | None) -> ParsedChordInput | None:
+        parsed_pipe = self._parse_pipe_row(raw, table_layout)
+        if parsed_pipe is not None:
+            return parsed_pipe
+
+        for regex in (self._csv_re, self._kv_re):
             m = regex.search(raw)
             if m:
-                return ParsedChordInput(symbol=m.group(1).strip(), frequency=int(m.group(2)), weight=float(m.group(3)))
+                weight_str = m.group(3)
+                weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+                return ParsedChordInput(symbol=m.group(1).strip(), frequency=int(m.group(2)), weight=weight)
 
         if raw.startswith("{"):
             try:
                 data = json.loads(raw)
-                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=float(data["weight"]))
+                weight = 1.0 if "weight" not in data or data["weight"] in (None, "") else float(data["weight"])
+                return ParsedChordInput(symbol=data["symbol"], frequency=int(data["frequency"]), weight=weight)
             except (json.JSONDecodeError, KeyError, TypeError, ValueError):
                 return None
 
         m = self._x_re.search(raw)
         if m:
-            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=float(m.group(3)))
+            weight_str = m.group(3)
+            weight = 1.0 if weight_str is None or not weight_str.strip() else float(weight_str)
+            return ParsedChordInput(symbol=m.group(2).strip(), frequency=int(m.group(1)), weight=weight)
+
+        generic = self._parse_generic_triplet(raw)
+        if generic is not None:
+            return generic
         return None
+
+    def _parse_pipe_row(self, raw: str, table_layout: tuple[int, int, int | None] | None) -> ParsedChordInput | None:
+        if "|" not in raw:
+            return None
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        if len(cells) < 2 or all(cell == "" for cell in cells):
+            return None
+
+        layout = table_layout if table_layout is not None else (0, 1, 2 if len(cells) > 2 else None)
+        symbol_idx, frequency_idx, weight_idx = layout
+        try:
+            symbol = cells[symbol_idx]
+            frequency = int(cells[frequency_idx])
+        except (ValueError, IndexError):
+            return None
+
+        weight_str = cells[weight_idx] if weight_idx is not None and weight_idx < len(cells) else ""
+        try:
+            weight = 1.0 if weight_str == "" else float(weight_str)
+        except ValueError:
+            return None
+        return ParsedChordInput(symbol=symbol, frequency=frequency, weight=weight)
+
+    def _read_pipe_header_layout(self, raw: str) -> tuple[int, int, int | None] | None:
+        if "|" not in raw:
+            return None
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        lowered = [cell.lower() for cell in cells]
+        if "chord" not in lowered or "frequency" not in lowered:
+            return None
+
+        symbol_idx = lowered.index("chord")
+        frequency_idx = lowered.index("frequency")
+        weight_idx = lowered.index("weight") if "weight" in lowered else None
+        return (symbol_idx, frequency_idx, weight_idx)
+
+    def _is_pipe_separator_line(self, raw: str) -> bool:
+        if "|" not in raw:
+            return False
+
+        cells = [cell.strip() for cell in raw.strip("|").split("|")]
+        return all(self._md_separator_cell_re.match(cell) for cell in cells if cell)
+
+    def _parse_generic_triplet(self, raw: str) -> ParsedChordInput | None:
+        normalized = raw.strip()
+        for left, right in (("[", "]"), ("(", ")"), ('"', '"'), ("'", "'")):
+            normalized = normalized.replace(left, " ").replace(right, " ")
+
+        parts = [p for p in self._generic_delimiter_re.split(normalized) if p]
+        if len(parts) < 2 or len(parts) > 3:
+            return None
+
+        symbol = parts[0].strip()
+        if not symbol:
+            return None
+
+        try:
+            frequency = int(parts[1])
+        except ValueError:
+            return None
+
+        weight_str = parts[2].strip() if len(parts) == 3 else ""
+        try:
+            weight = 1.0 if weight_str == "" else float(weight_str)
+        except ValueError:
+            return None
+        return ParsedChordInput(symbol=symbol, frequency=frequency, weight=weight)
 
 
 class ChordDecoder:
@@ -224,20 +324,38 @@ class IntervalBuilder:
 class WeightEngine:
     def __init__(
         self,
-        root_third_fifth: float = 1.5,
-        bass_to_any: float = 1.5,
-        root_to_dissonance: float = 0.5,
-        compound_interval: float = 0.75,
+        tritone: float = 0.1,
+        seconds_sevenths: float = 0.15,
+        thirds_sixths: float = 0.6,
+        fourth_fifth: float = 1.0,
+        root_dissonant_chord_multiplier: float = 0.8,
+        dominant_seventh_third_adjust_cents: float = 15.0,
     ) -> None:
-        self.root_third_fifth = root_third_fifth
-        self.bass_to_any = bass_to_any
-        self.root_to_dissonance = root_to_dissonance
-        self.compound_interval = compound_interval
+        self.tritone = tritone
+        self.seconds_sevenths = seconds_sevenths
+        self.thirds_sixths = thirds_sixths
+        self.fourth_fifth = fourth_fifth
+        self.root_dissonant_chord_multiplier = root_dissonant_chord_multiplier
+        self.dominant_seventh_third_adjust_cents = dominant_seventh_third_adjust_cents
 
     def pair_weight(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
-        weight = 1.0
+        span_class = span % 12
+
+        if span_class == 6:
+            return self.tritone
+        if span_class in {1, 2, 10, 11}:
+            return self.seconds_sevenths
+        if span_class in {3, 4, 8, 9}:
+            return self.thirds_sixths
+        if span_class in {5, 7}:
+            return self.fourth_fifth
+        return self.fourth_fifth
+
+    def is_root_dissonance(self, left_factor: str, right_factor: str, span: int) -> bool:
         lf = left_factor.lstrip("b#")
         rf = right_factor.lstrip("b#")
+        if "1" not in {lf, rf}:
+            return False
 
         if ("1" in {lf, rf}) and (lf in {"3", "5"} or rf in {"3", "5"}):
             weight *= self.root_third_fifth
@@ -251,66 +369,69 @@ class WeightEngine:
         if span >= 12:
             weight *= self.compound_interval
 
-        return weight
+    def chord_multiplier(self, intervals: tuple[IntervalPair, ...]) -> float:
+        if any(pair.root_dissonant for pair in intervals):
+            return self.root_dissonant_chord_multiplier
+        return 1.0
 
 
 class TemperamentRegistry:
     _CENTERS = ("C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B")
-    _FIFTH_SIZES = {
-        "Pythagorean": 701.955,
-        "1/4-comma meantone": 696.578,
-        "1/5-comma meantone": 697.653,
-        "1/6-comma meantone": 698.370,
-        "Werckmeister I": 700.800,
-        "Werckmeister II": 700.300,
-        "Werckmeister III": 700.100,
-        "Werckmeister IV": 699.900,
-        "Werckmeister V": 699.600,
-        "Werckmeister VI": 699.300,
-        "Kirnberger I": 700.900,
-        "Kirnberger II": 700.500,
-        "Kirnberger III": 700.200,
-        "Vallotti": 700.400,
-        "Young II": 700.450,
-        "Kellner": 700.350,
-        "Neidhardt": 700.250,
-        "Rameau": 700.150,
-        "Marpurg": 700.050,
-        "Sorge": 699.950,
-        "Bendeler I": 699.850,
-        "Bendeler II": 699.750,
-        "Bendeler III": 699.650,
-        "Silbermann I": 699.550,
-        "Silbermann II": 699.450,
-        "Schlick": 699.350,
-        "Zarlino": 699.250,
-        "Salinas": 699.150,
-        "12-TET baseline": 700.000,
+    _FIFTH_CHAINS = {
+        "Pythagorean": (701.955,) * 12,
+        "1/4-comma meantone": (696.578,) * 12,
+        "1/5-comma meantone": (697.653,) * 12,
+        "1/6-comma meantone": (698.370,) * 12,
+        "Werckmeister I": (701.955, 701.955, 701.955, 701.955, 701.955, 701.955, 698.500, 698.500, 698.500, 698.500, 698.500, 698.500),
+        "Werckmeister II": (701.955, 701.955, 701.955, 701.955, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750, 699.750),
+        "Werckmeister III": (701.955, 701.955, 701.955, 701.955, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000),
+        "Werckmeister IV": (701.955, 701.955, 701.955, 701.955, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600, 699.600),
+        "Werckmeister V": (701.955, 701.955, 701.955, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300),
+        "Werckmeister VI": (701.955, 701.955, 701.955, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900),
+        "Kirnberger I": (701.955, 701.955, 701.955, 701.955, 701.955, 700.200, 700.200, 700.200, 700.200, 700.200, 700.200, 700.200),
+        "Kirnberger II": (701.955, 701.955, 701.955, 701.955, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000, 700.000),
+        "Kirnberger III": (701.955, 701.955, 701.955, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600, 700.600),
+        "Vallotti": (701.955, 701.955, 701.955, 701.955, 701.955, 701.955, 698.045, 698.045, 698.045, 698.045, 698.045, 698.045),
+        "Young II": (701.955, 701.955, 701.955, 701.955, 701.300, 701.300, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Kellner": (701.955, 701.955, 701.955, 701.955, 700.500, 700.500, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Neidhardt": (701.955, 701.955, 701.955, 700.900, 700.900, 700.900, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Rameau": (701.955, 701.955, 701.955, 700.700, 700.700, 700.700, 699.200, 699.200, 699.200, 699.200, 699.200, 699.200),
+        "Marpurg": (701.955, 701.955, 701.955, 700.500, 700.500, 700.500, 699.300, 699.300, 699.300, 699.300, 699.300, 699.300),
+        "Sorge": (701.955, 701.955, 701.955, 700.300, 700.300, 700.300, 699.400, 699.400, 699.400, 699.400, 699.400, 699.400),
+        "Bendeler I": (701.955, 701.955, 701.200, 701.200, 700.300, 700.300, 699.100, 699.100, 699.100, 699.100, 699.100, 699.100),
+        "Bendeler II": (701.955, 701.955, 701.000, 701.000, 700.200, 700.200, 699.050, 699.050, 699.050, 699.050, 699.050, 699.050),
+        "Bendeler III": (701.955, 701.955, 700.900, 700.900, 700.100, 700.100, 699.000, 699.000, 699.000, 699.000, 699.000, 699.000),
+        "Silbermann I": (701.955, 701.955, 700.700, 700.700, 700.000, 700.000, 698.950, 698.950, 698.950, 698.950, 698.950, 698.950),
+        "Silbermann II": (701.955, 701.955, 700.600, 700.600, 699.900, 699.900, 698.900, 698.900, 698.900, 698.900, 698.900, 698.900),
+        "Schlick": (701.955, 701.955, 700.500, 700.500, 699.700, 699.700, 698.850, 698.850, 698.850, 698.850, 698.850, 698.850),
+        "Zarlino": (701.955, 701.955, 700.300, 700.300, 699.600, 699.600, 698.800, 698.800, 698.800, 698.800, 698.800, 698.800),
+        "Salinas": (701.955, 701.955, 700.200, 700.200, 699.500, 699.500, 698.750, 698.750, 698.750, 698.750, 698.750, 698.750),
+        "12-TET baseline": (700.000,) * 12,
     }
 
     def candidates(self) -> list[tuple[str, str, tuple[float, ...]]]:
         out: list[tuple[str, str, tuple[float, ...]]] = []
-        for family, fifth_size in self._FIFTH_SIZES.items():
-            base_map = self._build_map_from_fifth(fifth_size)
+        for family, fifth_chain in self._FIFTH_CHAINS.items():
+            base_map = self._build_map_from_fifths(fifth_chain)
             for center_index, center in enumerate(self._CENTERS):
                 shifted = tuple(base_map[(pc - center_index) % 12] for pc in range(12))
                 out.append((family, center, shifted))
         return out
 
-    def _build_map_from_fifth(self, fifth_size: float) -> tuple[float, ...]:
+    def _build_map_from_fifths(self, fifth_chain: tuple[float, ...]) -> tuple[float, ...]:
         values = [0.0] * 12
         pc = 0
         cur = 0.0
-        for _ in range(12):
+        mean_adjust = sum(fifth_chain) / len(fifth_chain) - 700.0
+        for fifth_size in fifth_chain:
             values[pc] = cur
             pc = (pc + 7) % 12
-            cur += fifth_size
+            cur += fifth_size - mean_adjust
             while cur >= 1200.0:
                 cur -= 1200.0
 
         minimum = min(values)
-        normalized = sorted(((v - minimum) % 1200.0 for v in values))
-        return tuple(normalized)
+        return tuple(((v - minimum) % 1200.0 for v in values))
 
 
 class JIReference:
@@ -328,6 +449,7 @@ class ScoringEngine:
         chords: Iterable[CanonicalChord],
         interval_map: dict[str, tuple[IntervalPair, ...]],
         pitch_map: tuple[float, ...],
+        weight_engine: WeightEngine,
     ) -> tuple[float, float, float, list[tuple[str, float]], list[tuple[str, float]]]:
         weighted_mae_sum = 0.0
         weighted_mse_sum = 0.0
@@ -352,7 +474,7 @@ class ScoringEngine:
                 if pair.semitone_span >= 12:
                     temp_cents += 1200.0 * (pair.semitone_span // 12)
 
-                ji = self.ji_reference.target_cents(pair.semitone_span)
+                ji = self.ji_reference.target_cents(pair.semitone_span) + pair.target_adjust_cents
                 err = abs(temp_cents - ji)
                 w = pair.weight
 
@@ -363,7 +485,7 @@ class ScoringEngine:
 
             chord_mae = abs_sum / pair_weight_sum
             chord_mse = sq_sum / pair_weight_sum
-            cw = chord.frequency * chord.weight
+            cw = chord.frequency * chord.weight * weight_engine.chord_multiplier(intervals)
             weighted_mae_sum += cw * chord_mae
             weighted_mse_sum += cw * chord_mse
             total_chord_weight += cw
@@ -412,14 +534,41 @@ class MusicalTuningOptimizer:
         self.ranker = Ranker()
         self.reporter = Reporter()
 
-    def optimize_from_lines(self, lines: Iterable[str]) -> tuple[list[dict[str, object]], list[str]]:
+    def optimize_from_lines(
+        self,
+        lines: Iterable[str],
+        weights: dict[str, float] | None = None,
+    ) -> tuple[list[dict[str, object]], list[str]]:
         parsed, invalid = self.input_adapter.parse_lines(lines)
         chords = [self.decoder.decode(p) for p in parsed]
-        interval_map = {c.symbol: self.interval_builder.build(c, self.weight_engine) for c in chords}
+        weight_engine = (
+            self.weight_engine
+            if weights is None
+            else WeightEngine(
+                tritone=weights.get("tritone", self.weight_engine.tritone),
+                seconds_sevenths=weights.get("seconds_sevenths", self.weight_engine.seconds_sevenths),
+                thirds_sixths=weights.get("thirds_sixths", self.weight_engine.thirds_sixths),
+                fourth_fifth=weights.get("fourth_fifth", self.weight_engine.fourth_fifth),
+                root_dissonant_chord_multiplier=weights.get(
+                    "root_dissonant_chord_multiplier",
+                    self.weight_engine.root_dissonant_chord_multiplier,
+                ),
+                dominant_seventh_third_adjust_cents=weights.get(
+                    "dominant_seventh_third_adjust_cents",
+                    self.weight_engine.dominant_seventh_third_adjust_cents,
+                ),
+            )
+        )
+        interval_map = {c.symbol: self.interval_builder.build(c, weight_engine) for c in chords}
 
         records: list[RankedRecord] = []
         for family, center, pitch_map in self.registry.candidates():
-            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(chords, interval_map, pitch_map)
+            wmae, wrmse, final, top_chords, top_intervals = self.scoring.score_piece(
+                chords,
+                interval_map,
+                pitch_map,
+                weight_engine,
+            )
             records.append(
                 RankedRecord(
                     family=family,
