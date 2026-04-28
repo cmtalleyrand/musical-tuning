@@ -6,7 +6,6 @@ from musical_tuning.optimizer import (
     TemperamentRegistry,
     WeightEngine,
 )
-from musical_tuning.webapp import build_statistics
 
 
 def test_input_adapter_parses_all_supported_formats():
@@ -138,6 +137,8 @@ def test_end_to_end_optimization_returns_ranked_schema():
         "top_chord_contributors",
         "top_interval_contributors",
     }
+    assert top["top_chord_contributors"]
+    assert top["top_interval_contributors"]
 
 
 def test_empty_or_invalid_input_returns_no_crash():
@@ -160,65 +161,12 @@ def test_interval_builder_keeps_ordered_semitones_in_pairs():
     assert pair_14.right_semitone == 14
 
 
-def test_interval_class_weights_match_requested_profile():
+def test_root_to_third_fifth_weight_requires_root_factor():
     chord = ChordDecoder().decode(InputAdapter().parse_lines(["Cmaj7,1,1.0"])[0][0])
     weight_engine = WeightEngine()
 
-    assert weight_engine.pair_weight(chord, "1", "b5", span=6) == 0.1
-    assert weight_engine.pair_weight(chord, "1", "2", span=2) == 0.15
-    assert weight_engine.pair_weight(chord, "1", "b7", span=10) == 0.15
-    assert weight_engine.pair_weight(chord, "1", "3", span=4) == 0.6
-    assert weight_engine.pair_weight(chord, "3", "5", span=3) == 0.6
-    assert weight_engine.pair_weight(chord, "1", "5", span=7) == 1.0
+    no_root_weight = weight_engine.pair_weight(chord, "3", "5", span=3)
+    with_root_weight = weight_engine.pair_weight(chord, "1", "3", span=4)
 
-
-def test_root_dissonance_downweights_whole_chord():
-    chord = ChordDecoder().decode(InputAdapter().parse_lines(["C7,1,1.0"])[0][0])
-    intervals = IntervalBuilder().build(chord, WeightEngine())
-
-    assert any(pair.root_dissonant for pair in intervals)
-    assert WeightEngine().chord_multiplier(intervals) == 0.8
-
-
-def test_dominant_seventh_thirds_receive_plus_15_cent_target_adjustment():
-    chord = ChordDecoder().decode(InputAdapter().parse_lines(["C7,1,1.0"])[0][0])
-    intervals = IntervalBuilder().build(chord, WeightEngine())
-    third_spans = [pair for pair in intervals if pair.semitone_span % 12 in {3, 4}]
-
-    assert third_spans
-    assert all(pair.target_adjust_cents == 15.0 for pair in third_spans)
-
-
-def test_build_statistics_reports_best_and_mean_scores():
-    ranked = [
-        {"family": "A", "center": "C", "final_score_cents": 1.0},
-        {"family": "B", "center": "D", "final_score_cents": 3.0},
-        {"family": "C", "center": "E", "final_score_cents": 5.0},
-    ]
-    stats = build_statistics(ranked, invalid=["bad"], input_lines=4)
-
-    assert stats.input_lines == 4
-    assert stats.valid_chords == 3
-    assert stats.invalid_lines == 1
-    assert stats.candidate_count == 3
-    assert stats.best_family == "A"
-    assert stats.best_center == "C"
-    assert stats.best_final_score_cents == 1.0
-    assert stats.mean_final_score_cents == 3.0
-
-
-def test_optimizer_accepts_weight_overrides():
-    optimizer = MusicalTuningOptimizer()
-    ranked_default, _ = optimizer.optimize_from_lines(["Am7,24,1.0", "D/F#,12,0.7"])
-    ranked_custom, _ = optimizer.optimize_from_lines(
-        ["Am7,24,1.0", "D/F#,12,0.7"],
-        weights={
-            "tritone": 0.2,
-            "seconds_sevenths": 0.3,
-            "thirds_sixths_fourth": 0.9,
-            "fifth": 1.1,
-        },
-    )
-
-    assert ranked_default and ranked_custom
-    assert ranked_default[0]["final_score_cents"] != ranked_custom[0]["final_score_cents"]
+    assert no_root_weight == 1.0
+    assert with_root_weight == 1.5

@@ -316,8 +316,6 @@ class IntervalBuilder:
                         right_semitone=semitones[j],
                         semitone_span=span,
                         weight=weight_engine.pair_weight(chord, factors[i], factors[j], span),
-                        target_adjust_cents=weight_engine.target_adjust_cents(chord, factors[i], factors[j], span),
-                        root_dissonant=weight_engine.is_root_dissonance(factors[i], factors[j], span),
                     )
                 )
         return tuple(out)
@@ -359,16 +357,17 @@ class WeightEngine:
         if "1" not in {lf, rf}:
             return False
 
-        span_class = span % 12
-        return span_class in {1, 2, 6, 10, 11}
+        if ("1" in {lf, rf}) and (lf in {"3", "5"} or rf in {"3", "5"}):
+            weight *= self.root_third_fifth
 
-    def target_adjust_cents(self, chord: CanonicalChord, left_factor: str, right_factor: str, span: int) -> float:
-        lf = left_factor.lstrip("b#")
-        rf = right_factor.lstrip("b#")
-        is_dominant_seventh = "3" in chord.factors and "b7" in chord.factors and "7" not in chord.factors
-        if is_dominant_seventh and span % 12 in {3, 4} and {lf, rf} != {"1", "5"}:
-            return self.dominant_seventh_third_adjust_cents
-        return 0.0
+        if chord.bass_pc != chord.root_pc:
+            weight *= self.bass_to_any
+
+        if {lf, rf} & {"1"} and ((lf in {"2", "7"} or rf in {"2", "7"}) or span % 12 == 6):
+            weight *= self.root_to_dissonance
+
+        if span >= 12:
+            weight *= self.compound_interval
 
     def chord_multiplier(self, intervals: tuple[IntervalPair, ...]) -> float:
         if any(pair.root_dissonant for pair in intervals):

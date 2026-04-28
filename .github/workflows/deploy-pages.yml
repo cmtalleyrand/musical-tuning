@@ -21,11 +21,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build static site
+      - name: Build browser app artifact
         run: |
           mkdir -p site
+          cp -R web/. site/
           cp README.md site/README.md
-          cp web/index.html site/index.html
+          mkdir -p site/musical_tuning
+          cp musical_tuning/__init__.py site/musical_tuning/__init__.py
+          cp musical_tuning/optimizer.py site/musical_tuning/optimizer.py
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

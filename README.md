@@ -1,5 +1,11 @@
 # Musical Tuning Optimizer
 
+## Browser App
+
+This repository includes a static browser UI in `web/index.html` that runs the optimizer client-side using Pyodide (Python in WebAssembly).
+The GitHub Pages workflow publishes the UI and bundles `musical_tuning/optimizer.py` and `musical_tuning/__init__.py` into the deployed artifact.
+The interface accepts chord-chart lines, computes rankings, and displays both global metrics (WMAE/WRMSE/final) and informative diagnostics (top chord and interval contributors for the best candidate).
+
 ## Project Plan
 
 ### Objective
