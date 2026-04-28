@@ -24,7 +24,8 @@ jobs:
       - name: Build browser app artifact
         run: |
           mkdir -p site
-          cp -R web/. site/
+          cp web/index.html site/index.html
+          cp web/app.js site/app.js
           cp README.md site/README.md
           mkdir -p site/musical_tuning
           cp musical_tuning/__init__.py site/musical_tuning/__init__.py
