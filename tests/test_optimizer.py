@@ -118,7 +118,15 @@ def test_decoder_preserves_bass_and_extensions():
 
 def test_registry_candidate_count_matches_spec():
     candidates = TemperamentRegistry().candidates()
-    assert len(candidates) == 29 * 12
+    assert len(candidates) == 34 * 12
+
+
+def test_registry_contains_historical_temperament_entries():
+    candidates = TemperamentRegistry().candidates()
+    families = {family for family, _, _ in candidates}
+    assert "Ramis de Pareja (1482)" in families
+    assert "Chaumont (1695, 1st interpretation)" in families
+    assert "Broadwood's Best (1885)" in families
 
 
 def test_end_to_end_optimization_returns_ranked_schema():
