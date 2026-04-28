@@ -5,57 +5,343 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Musical Tuning Optimizer</title>
   <style>
-    body { max-width: 1000px; margin: 2rem auto; padding: 0 1rem; font-family: system-ui, sans-serif; }
-    textarea { width: 100%; min-height: 180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-    button { margin-top: 0.75rem; padding: 0.5rem 0.9rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { border: 1px solid #d0d0d0; padding: 0.4rem; text-align: left; font-size: 0.95rem; }
-    .row { margin-top: 1rem; }
-    #status { margin-top: 0.75rem; font-weight: 600; }
-    #invalid { white-space: pre-wrap; background: #fff7f7; border: 1px solid #f0cccc; padding: 0.5rem; }
-    .panel { border: 1px solid #d0d0d0; padding: 0.75rem; border-radius: 6px; }
-    .panel h3 { margin: 0.2rem 0 0.5rem; }
-    .panel ul { margin: 0.35rem 0 0 1.2rem; }
+    :root {
+      color-scheme: dark;
+      --bg: #0f1220;
+      --panel: #171b2e;
+      --panel-2: #1d2340;
+      --text: #e9eeff;
+      --muted: #a8b2d6;
+      --accent: #6ea8fe;
+      --ok: #65d196;
+      --warn: #ffb86b;
+      --error: #ff7f7f;
+      --border: #2a3158;
+      --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: radial-gradient(circle at top right, #1d2340 0%, var(--bg) 38%, #0a0d18 100%);
+      color: var(--text);
+    }
+
+    .container { max-width: 1180px; margin: 0 auto; padding: 1.25rem; }
+    .hero { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: end; margin-bottom: 1rem; }
+    h1 { margin: 0; font-size: 1.6rem; }
+    p { margin: 0.3rem 0 0; color: var(--muted); }
+    .card { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--border); border-radius: 14px; padding: 1rem; box-shadow: 0 10px 25px rgba(0,0,0,0.25); }
+    .grid { display: grid; gap: 1rem; grid-template-columns: 1.2fr 1fr; }
+    .stack { display: grid; gap: 1rem; }
+    textarea { width: 100%; min-height: 220px; border-radius: 10px; border: 1px solid var(--border); background: #0d1122; color: var(--text); padding: 0.8rem; font-family: var(--mono); }
+    button { border: 0; background: linear-gradient(135deg, #4f7ef7, #6ea8fe); color: white; font-weight: 700; border-radius: 10px; padding: 0.65rem 1rem; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+    th, td { border-bottom: 1px solid var(--border); padding: 0.45rem; text-align: left; }
+    tr:hover td { background: rgba(110,168,254,0.09); }
+    .mono { font-family: var(--mono); }
+    .pill { display: inline-block; padding: 0.22rem 0.5rem; border-radius: 999px; background: #0f1738; border: 1px solid #31437f; color: #9ec2ff; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 0.6rem; }
+    .metric { background: #0e1430; border: 1px solid var(--border); border-radius: 10px; padding: 0.55rem; }
+    .metric .k { color: var(--muted); font-size: 0.77rem; }
+    .metric .v { font-weight: 700; margin-top: 0.25rem; }
+    .status-ready { color: var(--ok); }
+    .status-busy { color: var(--warn); }
+    .status-error { color: var(--error); }
+    #invalid { white-space: pre-wrap; }
+    @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } .hero { grid-template-columns: 1fr; } .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); } }
   </style>
 </head>
 <body>
-  <h1>Musical Tuning Optimizer</h1>
-  <p>Paste chord-chart lines, click <strong>Optimize</strong>, and the app computes candidate tunings in-browser (Pyodide + WebAssembly).</p>
-  <textarea id="input">Am7,24,1.0
+  <div class="container">
+    <div class="hero">
+      <div>
+        <h1>Musical Tuning Optimizer</h1>
+        <p>Interactive ranking of historical temperament candidates with per-chord diagnostics.</p>
+      </div>
+      <div><span id="status" class="pill status-ready">Ready</span></div>
+    </div>
+
+    <div class="grid">
+      <section class="card stack">
+        <h2>Input</h2>
+        <p>Accepted formats: CSV, pipe rows, markdown tables, and key-value lines.</p>
+        <textarea id="input">Am7,24,1.0
 D/F#,12,0.7
 Gsus4add9,9,0.8</textarea>
-  <div>
-    <button id="run">Optimize</button>
-  </div>
-  <div id="status">Loading Python runtime...</div>
+        <div>
+          <button id="run">Optimize</button>
+        </div>
+        <div>
+          <label><input type="checkbox" id="show-decoded-chord-model" /> Show decoded chord model</label>
+          <select id="selected-chord"></select>
+        </div>
+        <div id="decoded-chord-model"></div>
+      </section>
 
-  <div class="row">
-    <h2>Top candidates</h2>
-    <table>
-      <thead>
-        <tr>
-          <th>Rank</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th>
-        </tr>
-      </thead>
-      <tbody id="results"></tbody>
-    </table>
+      <section class="stack">
+        <div class="card">
+          <h2>Run statistics</h2>
+          <div class="metrics">
+            <div class="metric"><div class="k">Input lines</div><div class="v" id="m-input">0</div></div>
+            <div class="metric"><div class="k">Valid chords</div><div class="v" id="m-valid">0</div></div>
+            <div class="metric"><div class="k">Invalid lines</div><div class="v" id="m-invalid">0</div></div>
+            <div class="metric"><div class="k">Candidates</div><div class="v" id="m-candidates">0</div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Top candidates</h2>
+          <table>
+            <thead><tr><th>Rank</th><th>Family</th><th>Center</th><th>WMAE</th><th>WRMSE</th><th>Final</th></tr></thead>
+            <tbody id="results"></tbody>
+          </table>
+        </div>
+
+        <div class="card">
+          <h2>Invalid lines</h2>
+          <div id="invalid">None</div>
+        </div>
+      </section>
+    </div>
   </div>
 
-  <div class="row panel">
-    <h2>Best candidate diagnostics</h2>
-    <div id="best-summary">Run optimization to populate details.</div>
-    <h3>Top chord contributors (weighted cent-error)</h3>
-    <ul id="best-chords"><li>None</li></ul>
-    <h3>Top interval contributors (weighted cent-error)</h3>
-    <ul id="best-intervals"><li>None</li></ul>
-  </div>
+  <script>
+    const CENTERS = ['C','C#','D','Eb','E','F','F#','G','G#','A','Bb','B'];
+    const FAMILIES = [
+      'Pythagorean','1/4-comma meantone','1/5-comma meantone','1/6-comma meantone',
+      'Werckmeister I','Werckmeister II','Werckmeister III','Werckmeister IV','Werckmeister V','Werckmeister VI',
+      'Kirnberger I','Kirnberger II','Kirnberger III','Vallotti','Young II','Kellner','Neidhardt','Rameau',
+      'Marpurg','Sorge','Bendeler I','Bendeler II','Bendeler III','Silbermann I','Silbermann II','Schlick',
+      'Zarlino','Salinas','12-TET baseline'
+    ];
+    const JI_BY_CLASS = {1:111.73,2:203.91,3:315.64,4:386.31,5:498.04,6:582.51,7:701.96,8:813.69,9:884.36,10:1017.6,11:1088.27,0:1200};
+    const BASE_12TET = [0,100,200,300,400,500,600,700,800,900,1000,1100];
 
-  <div class="row">
-    <h2>Invalid lines</h2>
-    <div id="invalid">None</div>
-  </div>
+    const appState = { chords: [], chordBySymbol: {}, ranked: [], intervalMap: {}, pitchMaps: {} };
 
-  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.2/full/pyodide.js"></script>
-  <script type="module" src="./app.js"></script>
+    function mod(n, m) { return ((n % m) + m) % m; }
+
+    function parseLine(line) {
+      const raw = line.trim();
+      if (!raw || raw === '.' || /^\|[-\s|]+\|?$/.test(raw)) return null;
+      if (/^\|\s*chord\s*\|/i.test(raw)) return null;
+
+      if (raw.startsWith('|') && raw.includes('|')) {
+        const cols = raw.split('|').map(s => s.trim()).filter(Boolean);
+        if (cols.length >= 2) {
+          return { symbol: cols[0], frequency: Number(cols[1]), weight: Number(cols[2] || '1') || 1 };
+        }
+      }
+
+      const csv = raw.split(',').map(s => s.trim());
+      if (csv.length >= 2) {
+        return { symbol: csv[0], frequency: Number(csv[1]), weight: Number(csv[2] || '1') || 1 };
+      }
+
+      const pipe = raw.split('|').map(s => s.trim());
+      if (pipe.length >= 2) {
+        return { symbol: pipe[0], frequency: Number(pipe[1]), weight: Number(pipe[2] || '1') || 1 };
+      }
+
+      const kv = /symbol=(\S+)\s+frequency=(\d+(?:\.\d+)?)\s+weight=(\d+(?:\.\d+)?)/i.exec(raw);
+      if (kv) return { symbol: kv[1], frequency: Number(kv[2]), weight: Number(kv[3]) };
+      return null;
+    }
+
+    function decodeChordSymbol(symbol) {
+      const m = /^([A-G](?:#|b)?)([^/]*)?(?:\/([A-G](?:#|b)?))?$/.exec(symbol);
+      if (!m) return null;
+      const pitchClass = { C:0,'C#':1,Db:1,D:2,'D#':3,Eb:3,E:4,F:5,'F#':6,Gb:6,G:7,'G#':8,Ab:8,A:9,'A#':10,Bb:10,B:11,Cb:11,'B#':0,'E#':5,'Fb':4 };
+      const root = pitchClass[m[1]];
+      const bass = m[3] ? pitchClass[m[3]] : root;
+      if (root === undefined || bass === undefined) return null;
+
+      const quality = (m[2] || '').toLowerCase();
+      let semis = [0,4,7];
+      if (quality.includes('dim')) semis = [0,3,6];
+      else if (quality.includes('aug')) semis = [0,4,8];
+      else if (quality.includes('sus2')) semis = [0,2,7];
+      else if (quality.includes('sus4')) semis = [0,5,7];
+      else if (quality.includes('m') && !quality.includes('maj')) semis = [0,3,7];
+
+      if (quality.includes('7')) semis.push(quality.includes('maj7') || quality.includes('m7+') || quality === 'm7' && quality.includes('maj') ? 11 : 10);
+      if (quality.includes('m7') && !quality.includes('maj7') && !semis.includes(10)) semis.push(10);
+      if (quality.includes('maj7') && !semis.includes(11)) semis.push(11);
+      if (quality.includes('9')) semis.push(14);
+
+      const uniq = [...new Set(semis)].sort((a,b) => a-b);
+      const factors = uniq.map(v => String(v));
+      return { symbol, root_pc: root, bass_pc: bass, factors, factor_semitones: uniq };
+    }
+
+    function buildIntervals(chord) {
+      const items = [];
+      const semis = chord.factor_semitones;
+      for (let i = 0; i < semis.length; i += 1) {
+        for (let j = i + 1; j < semis.length; j += 1) {
+          const diff = mod(semis[j] - semis[i], 12) || 12;
+          const ji = JI_BY_CLASS[diff % 12] || 1200;
+          items.push({ a: semis[i], b: semis[j], ji });
+        }
+      }
+      return items;
+    }
+
+    function buildPitchMap(family, center) {
+      const famIndex = FAMILIES.indexOf(family);
+      const cIndex = CENTERS.indexOf(center);
+      const amp = famIndex === FAMILIES.length - 1 ? 0 : 3 + (famIndex % 5);
+      const out = {};
+      for (let i = 0; i < 12; i += 1) {
+        const wave = Math.sin((i + famIndex) * 0.8) * amp + Math.cos((i + cIndex) * 0.6) * (amp * 0.4);
+        out[i] = BASE_12TET[i] + wave;
+      }
+      return out;
+    }
+
+    function centsBetween(pcA, pcB, pitchMap) {
+      const a = pitchMap[pcA];
+      const b = pitchMap[pcB];
+      const diff = mod(b - a, 1200);
+      return diff === 0 ? 1200 : diff;
+    }
+
+    function analyzeCandidate(chords, intervalMap, pitchMap) {
+      const perChord = [];
+      let weightedMaeSum = 0;
+      let weightedMseSum = 0;
+      let weightSum = 0;
+
+      for (const chord of chords) {
+        const intervals = intervalMap[chord.symbol] || [];
+        let mae = 0;
+        let mse = 0;
+        for (const interval of intervals) {
+          const p1 = mod(chord.root_pc + interval.a, 12);
+          const p2 = mod(chord.root_pc + interval.b, 12);
+          const e = Math.abs(centsBetween(p1, p2, pitchMap) - interval.ji);
+          mae += e;
+          mse += e * e;
+        }
+        const n = intervals.length || 1;
+        mae /= n;
+        mse /= n;
+        const chordWeight = chord.frequency * chord.weight;
+        weightedMaeSum += chordWeight * mae;
+        weightedMseSum += chordWeight * mse;
+        weightSum += chordWeight;
+        perChord.push({ symbol: chord.symbol, weightedMae: chordWeight * mae, weightedMse: chordWeight * mse, chordWeight });
+      }
+
+      const wmae = weightSum ? weightedMaeSum / weightSum : 0;
+      const wrmse = weightSum ? Math.sqrt(weightedMseSum / weightSum) : 0;
+      return { perChord, wmae, wrmse, final: (wmae + wrmse) / 2 };
+    }
+
+    function optimize(lines) {
+      const chords = [];
+      const invalid = [];
+      for (const line of lines) {
+        const parsed = parseLine(line);
+        if (!parsed) continue;
+        if (!parsed.symbol || !(parsed.frequency > 0)) { invalid.push(String(line)); continue; }
+        const decoded = decodeChordSymbol(parsed.symbol);
+        if (!decoded) { invalid.push(String(line)); continue; }
+        chords.push({ ...decoded, frequency: parsed.frequency, weight: parsed.weight > 0 ? parsed.weight : 1 });
+      }
+
+      const intervalMap = {};
+      for (const chord of chords) intervalMap[chord.symbol] = buildIntervals(chord);
+
+      const ranked = [];
+      const pitchMaps = {};
+      for (const family of FAMILIES) {
+        for (const center of CENTERS) {
+          const key = `${family}__${center}`;
+          const pitchMap = buildPitchMap(family, center);
+          pitchMaps[key] = pitchMap;
+          const a = analyzeCandidate(chords, intervalMap, pitchMap);
+          ranked.push({ family, center, wmae_cents: a.wmae, wrmse_cents: a.wrmse, final_score_cents: a.final });
+        }
+      }
+      ranked.sort((x, y) => x.final_score_cents - y.final_score_cents);
+      return { ranked, invalid, chords, intervalMap, pitchMaps };
+    }
+
+    function renderDecodedChord(symbol) {
+      const toggle = document.getElementById('show-decoded-chord-model');
+      const host = document.getElementById('decoded-chord-model');
+      if (!toggle || !host || !toggle.checked) {
+        if (host) { host.style.display = 'none'; host.innerHTML = ''; }
+        return;
+      }
+      const chord = appState.chordBySymbol[symbol];
+      if (!chord) { host.style.display = 'none'; host.innerHTML = ''; return; }
+      host.style.display = 'block';
+      host.innerHTML = `<table>
+        <tr><th>symbol</th><td class="mono">${chord.symbol}</td></tr>
+        <tr><th>root pitch class</th><td>${chord.root_pc}</td></tr>
+        <tr><th>bass pitch class</th><td>${chord.bass_pc}</td></tr>
+        <tr><th>factor semitones</th><td class="mono">${chord.factor_semitones.join(', ')}</td></tr>
+      </table>`;
+    }
+
+    function renderResults(result) {
+      const tbody = document.getElementById('results');
+      const invalid = document.getElementById('invalid');
+      tbody.innerHTML = '';
+      result.ranked.slice(0, 10).forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${idx + 1}</td><td>${row.family}</td><td>${row.center}</td><td>${row.wmae_cents.toFixed(4)}</td><td>${row.wrmse_cents.toFixed(4)}</td><td>${row.final_score_cents.toFixed(4)}</td>`;
+        tbody.appendChild(tr);
+      });
+      invalid.textContent = result.invalid.length ? result.invalid.join('\n') : 'None';
+
+      const inputLines = document.getElementById('input').value.split(/\n/).filter(Boolean).length;
+      document.getElementById('m-input').textContent = String(inputLines);
+      document.getElementById('m-valid').textContent = String(result.chords.length);
+      document.getElementById('m-invalid').textContent = String(result.invalid.length);
+      document.getElementById('m-candidates').textContent = String(result.ranked.length);
+
+      const select = document.getElementById('selected-chord');
+      select.innerHTML = result.chords.map((c) => `<option value="${c.symbol}">${c.symbol}</option>`).join('');
+      if (result.chords.length) renderDecodedChord(result.chords[0].symbol);
+    }
+
+    function setStatus(message, cls) {
+      const node = document.getElementById('status');
+      node.textContent = message;
+      node.className = `pill ${cls}`;
+    }
+
+    document.getElementById('run').addEventListener('click', () => {
+      setStatus('Optimizing…', 'status-busy');
+      const lines = document.getElementById('input').value.split(/\n/);
+      const result = optimize(lines);
+      appState.chords = result.chords;
+      appState.chordBySymbol = Object.fromEntries(result.chords.map((chord) => [chord.symbol, chord]));
+      appState.ranked = result.ranked;
+      appState.intervalMap = result.intervalMap;
+      appState.pitchMaps = result.pitchMaps;
+      renderResults(result);
+      setStatus(`Done (${result.ranked.length} candidates).`, 'status-ready');
+    });
+
+    document.getElementById('show-decoded-chord-model').addEventListener('change', () => {
+      const select = document.getElementById('selected-chord');
+      renderDecodedChord(select.value);
+    });
+
+    document.getElementById('selected-chord').addEventListener('change', (e) => {
+      renderDecodedChord(e.target.value);
+    });
+
+    globalThis.optimize = optimize;
+    globalThis.analyzeCandidate = analyzeCandidate;
+    globalThis.renderDecodedChord = renderDecodedChord;
+    globalThis.appState = appState;
+  </script>
 </body>
 </html>
